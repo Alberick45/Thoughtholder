@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Strategist Arsenal</string>
+    <string name="title_activity_main">Strategist Arsenal</string>
+    <string name="package_name">com.target.arsenal</string>
+    <string name="custom_url_scheme">com.target.arsenal</string>
+</resources>

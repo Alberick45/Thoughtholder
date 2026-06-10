@@ -1,0 +1,365 @@
+:root {
+  --bg-primary: #0a0a0c;
+  --bg-secondary: #141416;
+  --bg-tertiary: rgba(255, 255, 255, 0.05);
+  
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  
+  --accent-blue: #3b82f6;
+  --accent-blue-glow: rgba(59, 130, 246, 0.5);
+  
+  --neon-purple: #8b5cf6;
+  --neon-purple-glow: rgba(139, 92, 246, 0.5);
+  
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(255, 255, 255, 0.2);
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* App should act like a native app, no body scrolling */
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(20, 20, 22, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+/* Typography styles */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+a {
+  font-weight: 500;
+  color: var(--accent-blue);
+  text-decoration: inherit;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-focus);
+}
+
+button:focus,
+button:focus-visible {
+  outline: 4px auto var(--accent-blue-glow);
+}
+
+input {
+  font-family: inherit;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 12px var(--accent-blue-glow);
+  background: rgba(20, 20, 22, 0.8);
+}
+
+input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Smooth scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary); 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-focus); 
+}
+
+/* Animations */
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUpFade 0.3s ease-out forwards;
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 5px var(--accent-blue-glow); }
+  50% { box-shadow: 0 0 15px var(--accent-blue-glow); }
+  100% { box-shadow: 0 0 5px var(--accent-blue-glow); }
+}
+
+/* Typing Animation */
+.typing-dots {
+  display: flex;
+  gap: 5px;
+  padding: 8px 0;
+  align-items: center;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  background-color: var(--accent-blue);
+  border-radius: 50%;
+  display: inline-block;
+  animation: jarvis-typing 1.4s infinite ease-in-out;
+  opacity: 0.4;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes jarvis-typing {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50% { transform: translateY(-4px); opacity: 1; scale: 1.1; }
+}
+
+/* App layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  padding-top: 30px; /* Space for the hidden titlebar on mac/windows */
+}
+
+.input-bar-container {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto 2rem auto;
+  background: var(--bg-secondary);
+  border-radius: 16px;
+}
+
+.input-bar-container textarea {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+/* BASE DESKTOP STYLES FOR DYNAMIC CLASSES */
+.sidebar-open {
+  width: 400px;
+  min-width: 400px;
+  overflow: hidden;
+}
+.sidebar-closed {
+  width: 0px;
+  min-width: 0px;
+  overflow: hidden;
+}
+.sidebar-toggle-btn {
+  /* left value handled dynamically or overridden below */
+}
+.sidebar-open + .sidebar-toggle-btn {
+  left: 400px;
+}
+.sidebar-closed + .sidebar-toggle-btn {
+  left: 0px;
+}
+
+.global-widget-panel {
+  width: 400px;
+  height: 550px;
+}
+
+/* 📱 MOBILE RESPONSIVENESS OVERHAUL 📱 */
+@media (max-width: 768px) {
+  .app-container {
+    padding-top: 5px !important; /* Move closer to top */
+  }
+
+  /* Shrink Header */
+  h1 { font-size: 1.5rem !important; margin-bottom: 0.2rem !important; }
+  h2 { font-size: 1.1rem !important; }
+
+  /* Force sidebar to be a clean overlay */
+  .sidebar-open {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 2000 !important; /* Above everything */
+    width: 85% !important;
+    min-width: 85% !important;
+    border-radius: 0 16px 16px 0 !important;
+    box-shadow: 10px 0 30px rgba(0,0,0,0.8) !important;
+  }
+
+  .sidebar-closed {
+    width: 0px !important;
+    min-width: 0px !important;
+    border-right: none !important;
+  }
+
+  .sidebar-open + main .sidebar-toggle-btn, /* If it was a sibling, but it's not. It's next to it. */
+  .sidebar-toggle-btn {
+    left: 0px; /* Default */
+  }
+
+  /* We must override inline left dynamically from JS, but let's just make sure toggle is above */
+  .sidebar-toggle-btn {
+    z-index: 2500 !important;
+  }
+
+  /* Fix Global Widget (Jarvis Chat) for Mobile */
+  .global-widget-container {
+    right: 0 !important;
+    left: 0 !important;
+    bottom: 5vh !important;
+    width: 100vw !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  
+  .global-widget-panel {
+    width: 90vw !important;
+    height: 70vh !important;
+    max-height: 500px !important;
+  }
+
+  .hide-on-mobile {
+    display: none !important;
+  }
+
+  .global-header {
+    padding: 0.8rem 1rem !important;
+  }
+  
+  .global-header h1 {
+    font-size: 1.3rem !important;
+  }
+
+  /* Vault / Deep Guard Mobile Fixes */
+  .vault-header {
+    padding: 1rem !important;
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+
+  .vault-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vault-main, .arsenal-main {
+    padding: 1rem !important;
+  }
+
+  .arsenal-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 1.5rem !important;
+  }
+
+  .arsenal-header-actions {
+    width: 100%;
+  }
+
+  .arsenal-header-actions button {
+    flex: 1 1 100% !important;
+    text-align: center;
+  }
+
+  .arsenal-tabs-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+
+  .arsenal-item-actions {
+    justify-content: flex-start !important;
+    margin-top: 0.5rem;
+  }
+
+  .setup-modal {
+    padding: 1.5rem !important;
+  }
+
+  /* Fix InputBar Contrast & Visibility */
+  .input-bar-container {
+    width: 92% !important;
+    max-width: 92% !important;
+    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem) !important;
+    background: rgba(30, 30, 35, 0.95) !important; /* Solid-ish background for contrast */
+    border: 1px solid rgba(255,255,255,0.2) !important;
+  }
+
+  .input-bar-container textarea {
+    color: #ffffff !important; /* Force high contrast white */
+    font-size: 1.1rem !important;
+    opacity: 1 !important;
+  }
+
+  .input-bar-container textarea::placeholder {
+    color: rgba(255,255,255,0.5) !important;
+  }
+
+  /* Fix the floating buttons (Eye/Brain) */
+  .floating-widget {
+    scale: 0.8; /* Shrink for mobile */
+  }
+
+  /* Center Hub Layout */
+  main {
+    padding: 0.5rem !important;
+    width: 100vw !important;
+  }
+}
