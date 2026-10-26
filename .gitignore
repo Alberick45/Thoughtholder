@@ -38,3 +38,11 @@ pnpm-debug.log*
 
 # Misc
 *.local
+_archive_old_app/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+**/build/
