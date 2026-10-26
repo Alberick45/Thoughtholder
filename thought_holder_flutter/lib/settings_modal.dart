@@ -6,6 +6,7 @@ import 'thought_provider.dart';
 import 'ble_sync_screen.dart';
 import 'settings_service.dart';
 import 'desktop_manager.dart';
+import 'voice_transcription_service.dart';
 
 class SettingsModal extends StatefulWidget {
   const SettingsModal({Key? key}) : super(key: key);
@@ -19,10 +20,36 @@ class _SettingsModalState extends State<SettingsModal> {
   bool _isSignedIn = false;
   bool _isSyncing = false;
 
+  late TextEditingController _apiKeyController;
+  late TextEditingController _promptController;
+  bool _controllersInit = false;
+  bool _testingGroq = false;
+  String? _groqStatusText;
+
   @override
   void initState() {
     super.initState();
     _checkSignInStatus();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_controllersInit) {
+      final settings = context.read<SettingsService>();
+      _apiKeyController = TextEditingController(text: settings.groqApiKey);
+      _promptController = TextEditingController(text: settings.whisperPrompt);
+      _controllersInit = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_controllersInit) {
+      _apiKeyController.dispose();
+      _promptController.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> _checkSignInStatus() async {
@@ -131,6 +158,27 @@ class _SettingsModalState extends State<SettingsModal> {
     }
   }
 
+  Future<void> _testWhisperConnection(SettingsService settings) async {
+    setState(() {
+      _testingGroq = true;
+      _groqStatusText = null;
+    });
+    final key = _apiKeyController.text.trim();
+    await settings.setGroqApiKey(key);
+    await settings.setWhisperPrompt(_promptController.text.trim());
+
+    final reachable = await VoiceTranscriptionService().checkGroqReachability(key);
+
+    if (mounted) {
+      setState(() {
+        _testingGroq = false;
+        _groqStatusText = reachable
+            ? '✓ Connected! Whisper Large V3 Turbo is online and ready.'
+            : '✗ Failed to reach Groq. Check your internet connection & API key.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settingsService = context.watch<SettingsService>();
@@ -138,7 +186,7 @@ class _SettingsModalState extends State<SettingsModal> {
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
+        maxHeight: MediaQuery.of(context).size.height * 0.90,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       decoration: BoxDecoration(
@@ -172,6 +220,135 @@ class _SettingsModalState extends State<SettingsModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // --- Whisper AI (Primary) Section ---
+                  Row(
+                    children: [
+                      const Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'WHISPER AI TRANSCRIBER (PRIMARY)',
+                        style: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Use Whisper AI as Primary',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          subtitle: const Text(
+                            'Uses Groq whisper-large-v3-turbo when online, with automatic offline fallback to device',
+                            style: TextStyle(color: Colors.white54, fontSize: 11),
+                          ),
+                          value: settingsService.useWhisperAsPrimary,
+                          activeColor: Colors.amber,
+                          onChanged: (val) async {
+                            await settingsService.setUseWhisperAsPrimary(val);
+                            setState(() {});
+                          },
+                        ),
+                        const Divider(color: Colors.white10, height: 20),
+                        const Text(
+                          'Groq API Key:',
+                          style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _apiKeyController,
+                          obscureText: true,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'gsk_...',
+                            hintStyle: const TextStyle(color: Colors.white24),
+                            filled: true,
+                            fillColor: Colors.black38,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                          onChanged: (val) => settingsService.setGroqApiKey(val),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Prompt Priming (Names, Terms & Locations):',
+                          style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Primes Whisper so it accurately spells names like Albert, local towns, and technical jargon.',
+                          style: TextStyle(color: Colors.white38, fontSize: 11),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _promptController,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'e.g. Albert, PK, Aaenics, Ghana...',
+                            hintStyle: const TextStyle(color: Colors.white24),
+                            filled: true,
+                            fillColor: Colors.black38,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                          onChanged: (val) => settingsService.setWhisperPrompt(val),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: _testingGroq ? null : () => _testWhisperConnection(settingsService),
+                              icon: _testingGroq
+                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                                  : const Icon(Icons.wifi_tethering, size: 16),
+                              label: Text(_testingGroq ? 'CHECKING...' : 'TEST CONNECTION'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Theme.of(context).primaryColor,
+                                foregroundColor: Colors.black,
+                                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            if (_groqStatusText != null)
+                              Expanded(
+                                child: Text(
+                                  _groqStatusText!,
+                                  style: TextStyle(
+                                    color: _groqStatusText!.startsWith('✓') ? Colors.greenAccent : Colors.redAccent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
                   // --- Desktop / Laptop Widget Section ---
                   if (isDesktop) ...[
                     const Text(
@@ -262,8 +439,8 @@ class _SettingsModalState extends State<SettingsModal> {
                         children: [
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('Online Speech Recognition', style: TextStyle(color: Colors.white, fontSize: 14)),
-                            subtitle: const Text('Leverages Windows cloud speech engine for superior vocabulary & accuracy', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            title: const Text('Online Speech Recognition (Fallback Mode)', style: TextStyle(color: Colors.white, fontSize: 14)),
+                            subtitle: const Text('Leverages Windows cloud speech engine when Whisper is offline', style: TextStyle(color: Colors.white54, fontSize: 11)),
                             value: settingsService.speechOnline,
                             activeColor: Colors.cyanAccent,
                             onChanged: (val) async {
@@ -278,7 +455,7 @@ class _SettingsModalState extends State<SettingsModal> {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            '• If laptop is not hearing you well, check your input level and active microphone.\n• Turn on Online speech recognition in Windows settings for free speech dictation.',
+                            '• If laptop is not hearing you well, check your input level and active microphone.\n• For testing, use the laptop’s built-in mic or a wired headset to avoid Bluetooth Hands-Free profile audio drop.',
                             style: TextStyle(color: Colors.white54, fontSize: 11),
                           ),
                           const SizedBox(height: 12),

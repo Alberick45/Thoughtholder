@@ -15,6 +15,33 @@ class SettingsService {
       // Fall back to a temporary in-memory box so the app still launches.
       _box = await Hive.openBox('${_boxName}_temp');
     }
+    await _tryLoadFromEnvFile();
+  }
+
+  Future<void> _tryLoadFromEnvFile() async {
+    try {
+      final envFile = File('.env');
+      if (await envFile.exists()) {
+        final lines = await envFile.readAsLines();
+        for (final line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.startsWith('GROQ_KEY=')) {
+            final key = trimmed.substring('GROQ_KEY='.length).trim();
+            final currentKey = _box.get('groq_api_key', defaultValue: '') as String;
+            if (key.isNotEmpty && currentKey.isEmpty) {
+              await _box.put('groq_api_key', key);
+            }
+          }
+          if (trimmed.startsWith('WHISPER_PROMPT=')) {
+            final prompt = trimmed.substring('WHISPER_PROMPT='.length).trim();
+            final currentPrompt = _box.get('whisper_prompt', defaultValue: '') as String;
+            if (prompt.isNotEmpty && currentPrompt.isEmpty) {
+              await _box.put('whisper_prompt', prompt);
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /// Get the local device name (defaults to system hostname).
@@ -105,6 +132,36 @@ class SettingsService {
 
   Future<void> setSpeechOnline(bool value) async {
     await _box.put('speech_online', value);
+  }
+
+  // --- Groq Whisper AI Settings ---
+  // Key can be passed at compile-time via --dart-define=GROQ_KEY=...,
+  // loaded from a local .env file, or configured directly in Settings UI.
+  static const String defaultGroqKey = String.fromEnvironment('GROQ_KEY', defaultValue: '');
+  static const String defaultWhisperPrompt = 'Albert, PK, Aaenics, UMaT, Tarkwa, Ghana';
+
+  String get groqApiKey {
+    const fromEnv = String.fromEnvironment('GROQ_KEY');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return _box.get('groq_api_key', defaultValue: defaultGroqKey);
+  }
+
+  Future<void> setGroqApiKey(String key) async {
+    await _box.put('groq_api_key', key.trim());
+  }
+
+  String get whisperPrompt =>
+      _box.get('whisper_prompt', defaultValue: defaultWhisperPrompt);
+
+  Future<void> setWhisperPrompt(String prompt) async {
+    await _box.put('whisper_prompt', prompt.trim());
+  }
+
+  bool get useWhisperAsPrimary =>
+      _box.get('use_whisper_primary', defaultValue: true);
+
+  Future<void> setUseWhisperAsPrimary(bool val) async {
+    await _box.put('use_whisper_primary', val);
   }
 }
 
