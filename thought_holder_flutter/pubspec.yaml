@@ -68,6 +68,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   msix: ^3.16.7
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -82,6 +83,7 @@ flutter:
 
   assets:
     - assets/app_icon.ico
+    - assets/icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -118,10 +120,21 @@ msix_config:
   msix_version: 1.0.0.0
   description: Capture, stream, and sync your thoughts across devices.
   publisher: CN=ThoughtHolder
-  logo_path: windows\runner\resources\app_icon.ico
+  logo_path: assets\icon.png
   capabilities: bluetooth,bluetooth.genericAttributeProfile,microphone,internetClient
   languages: en-us
   install_certificate: false
-  sign_msix: true
+  sign_msix: false
   output_path: build\windows\ThoughtHolder-Setup
   output_name: ThoughtHolder-Setup
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256
+

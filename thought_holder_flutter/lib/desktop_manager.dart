@@ -112,10 +112,10 @@ class DesktopManager with WindowListener, TrayListener {
       // Extract from Flutter asset bundle to app support dir as guaranteed fallback
       final supportDir = await getApplicationSupportDirectory();
       final targetFile = File('${supportDir.path}/app_tray_icon.ico');
-      if (!await targetFile.exists()) {
+      try {
         final byteData = await rootBundle.load('assets/app_icon.ico');
-        await targetFile.writeAsBytes(byteData.buffer.asUint8List());
-      }
+        await targetFile.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
+      } catch (_) {}
       return targetFile.path;
     } catch (_) {
       return 'windows/runner/resources/app_icon.ico';
