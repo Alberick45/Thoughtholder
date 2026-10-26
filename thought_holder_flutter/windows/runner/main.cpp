@@ -11,6 +11,36 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Set explicit AppUserModelID so Windows Taskbar pins and identifies ThoughtHolder uniquely
   ::SetCurrentProcessExplicitAppUserModelID(L"ThoughtHolder.App.1.0");
 
+  // Single-Instance Check via Named Mutex: limit to just one window
+  HANDLE single_instance_mutex = ::CreateMutexW(
+      nullptr, TRUE, L"Local\\ThoughtHolder_SingleInstance_Mutex_2026");
+  if (single_instance_mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    const UINT wake_msg = ::RegisterWindowMessageW(L"ThoughtHolder_WakeInstance_Message");
+    HWND existing_window = ::FindWindowW(L"ThoughtHolder_MainWindow", nullptr);
+    if (!existing_window) {
+      existing_window = ::FindWindowW(nullptr, L"ThoughtHolder");
+    }
+
+    if (existing_window) {
+      ::PostMessageW(existing_window, wake_msg, 0, 0);
+      ::ShowWindow(existing_window, SW_RESTORE);
+      ::ShowWindow(existing_window, SW_SHOW);
+      ::SetForegroundWindow(existing_window);
+      ::BringWindowToTop(existing_window);
+      ::FlashWindow(existing_window, TRUE);
+    }
+
+    // Inform user that the window is already opened
+    ::MessageBoxW(
+        existing_window,
+        L"ThoughtHolder is already open.\n\nThe existing window has been brought to the foreground.",
+        L"ThoughtHolder",
+        MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+
+    ::CloseHandle(single_instance_mutex);
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -32,6 +62,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"ThoughtHolder", origin, size)) {
+    if (single_instance_mutex != nullptr) {
+      ::ReleaseMutex(single_instance_mutex);
+      ::CloseHandle(single_instance_mutex);
+    }
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
@@ -44,5 +78,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  if (single_instance_mutex != nullptr) {
+    ::ReleaseMutex(single_instance_mutex);
+    ::CloseHandle(single_instance_mutex);
+  }
   return EXIT_SUCCESS;
 }

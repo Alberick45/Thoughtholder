@@ -192,11 +192,23 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
   return DefWindowProc(window, message, wparam, lparam);
 }
 
+static const UINT WM_WAKE_THOUGHT_HOLDER =
+    ::RegisterWindowMessageW(L"ThoughtHolder_WakeInstance_Message");
+
 LRESULT
 Win32Window::MessageHandler(HWND hwnd,
                             UINT const message,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
+  if (message == WM_WAKE_THOUGHT_HOLDER) {
+    ShowWindow(hwnd, SW_RESTORE);
+    ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+    BringWindowToTop(hwnd);
+    FlashWindow(hwnd, TRUE);
+    return 0;
+  }
+
   switch (message) {
     case WM_DESTROY:
       window_handle_ = nullptr;
