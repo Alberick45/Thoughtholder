@@ -48,6 +48,12 @@ class DesktopManager with WindowListener, TrayListener {
 
       windowManager.waitUntilReadyToShow(windowOptions, () async {
         await windowManager.setPreventClose(true);
+        try {
+          final iconPath = await _resolveIconPath();
+          if (iconPath.isNotEmpty) {
+            await windowManager.setIcon(iconPath);
+          }
+        } catch (_) {}
         await windowManager.show();
         await windowManager.focus();
       });
