@@ -15,6 +15,7 @@ import 'receiver_service.dart';
 import 'settings_service.dart';
 import 'history_service.dart';
 import 'gamification_provider.dart';
+import 'navigation_service.dart';
 import 'package:home_widget/home_widget.dart';
 import 'record_trigger.dart';
 import 'desktop_manager.dart';
@@ -53,6 +54,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => ThoughtProvider()),
         ChangeNotifierProvider(create: (_) => GamificationProvider()),
+        ChangeNotifierProvider(create: (_) => NavigationNotifier()),
         Provider<GoogleDriveService>(create: (_) => GoogleDriveService()),
         Provider<SettingsService>.value(value: settingsService),
         Provider<HistoryService>.value(value: historyService),
@@ -96,8 +98,6 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _currentIndex = 0;
-
   @override
   void initState() {
     super.initState();
@@ -113,8 +113,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onRecordTriggered() {
-    if (recordRequested.value && mounted && _currentIndex != 0) {
-      setState(() => _currentIndex = 0);
+    if (recordRequested.value && mounted) {
+      context.read<NavigationNotifier>().goToCapture();
     }
   }
 
@@ -126,13 +126,16 @@ class _MainShellState extends State<MainShell> {
 
   void _handleWidgetUri(Uri? uri) {
     if (uri?.host == 'record') {
-      setState(() => _currentIndex = 0); // go to Capture
+      context.read<NavigationNotifier>().goToCapture();
       recordRequested.value = true; // CaptureScreen picks this up
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final nav = context.watch<NavigationNotifier>();
+    final currentIndex = nav.mainTabIndex;
+
     final pages = [
       const CaptureScreen(),
       const StreamScreen(),
@@ -146,7 +149,7 @@ class _MainShellState extends State<MainShell> {
             color: Color(0xFFFFBF00),
             fontWeight: FontWeight.bold,
             letterSpacing: 3,
-            fontSize: 14,
+            fontSize: 16,
           ),
         ),
         centerTitle: true,
@@ -155,6 +158,7 @@ class _MainShellState extends State<MainShell> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: Color(0xFF8E9192)),
+            tooltip: 'Settings',
             onPressed: () {
               showModalBottomSheet(
                 context: context,
@@ -166,25 +170,30 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
-      body: pages[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        backgroundColor: const Color(0xFF131315),
-        selectedItemColor: const Color(0xFFFFBF00),
-        unselectedItemColor: const Color(0xFF8E9192),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.mic_outlined),
-            activeIcon: Icon(Icons.mic),
-            label: 'Capture',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.stream_outlined),
-            activeIcon: Icon(Icons.stream),
-            label: 'Stream',
-          ),
-        ],
+      body: pages[currentIndex],
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFF1F1F21), width: 1)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: currentIndex,
+          onTap: (index) => context.read<NavigationNotifier>().setMainTab(index),
+          backgroundColor: const Color(0xFF131315),
+          selectedItemColor: const Color(0xFFFFBF00),
+          unselectedItemColor: const Color(0xFF8E9192),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.mic_outlined),
+              activeIcon: Icon(Icons.mic),
+              label: 'Capture',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_outlined),
+              activeIcon: Icon(Icons.auto_awesome),
+              label: 'Stream',
+            ),
+          ],
+        ),
       ),
     );
   }

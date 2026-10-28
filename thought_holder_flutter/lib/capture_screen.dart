@@ -10,6 +10,9 @@ import 'gamification_provider.dart';
 import 'record_trigger.dart';
 import 'settings_service.dart';
 import 'voice_transcription_service.dart';
+import 'navigation_service.dart';
+import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({Key? key}) : super(key: key);
@@ -32,6 +35,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   String _captureMode = 'voice'; // 'voice' | 'text'
   final TextEditingController _textController = TextEditingController();
+  Box? _prefsBox;
 
   String _committedText = '';
   double _soundLevel = 0.0;
@@ -54,6 +58,22 @@ class _CaptureScreenState extends State<CaptureScreen>
       _onRecordRequested();
       _checkPendingRecordings();
     });
+    _initDraftStorage();
+  }
+
+  Future<void> _initDraftStorage() async {
+    try {
+      _prefsBox = await Hive.openBox('app_preferences');
+      final draft = _prefsBox?.get('draft_thought_text', defaultValue: '') as String?;
+      if (draft != null && draft.isNotEmpty && _textController.text.isEmpty) {
+        _textController.text = draft;
+      }
+    } catch (_) {}
+    _textController.addListener(_onDraftChanged);
+  }
+
+  void _onDraftChanged() {
+    _prefsBox?.put('draft_thought_text', _textController.text);
   }
 
   void _onRecordRequested() {
@@ -96,6 +116,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   @override
   void dispose() {
+    _textController.removeListener(_onDraftChanged);
     recordRequested.removeListener(_onRecordRequested);
     _transcriptionService.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -199,7 +220,7 @@ class _CaptureScreenState extends State<CaptureScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isWhisper ? '✓ TRANSCRIBED WITH WHISPER AI' : '✓ SAVED TO STREAM',
+            isWhisper ? '✓ Transcribed & saved to Unsorted' : '✓ Saved to Unsorted',
             style: const TextStyle(
                 color: Colors.amber, fontWeight: FontWeight.bold),
           ),
@@ -207,6 +228,11 @@ class _CaptureScreenState extends State<CaptureScreen>
           duration: const Duration(seconds: 2),
         ),
       );
+
+      // Navigate to Stream > Unsorted
+      if (mounted) {
+        context.read<NavigationNotifier>().goToStream(subTab: 'unsorted');
+      }
     }
   }
 
@@ -224,17 +250,24 @@ class _CaptureScreenState extends State<CaptureScreen>
               'com.example.thought_holder_flutter.ThoughtWidgetProvider',
         );
       }
+      _textController.clear();
+      _prefsBox?.delete('draft_thought_text');
+      FocusScope.of(context).unfocus();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✓ SAVED TO STREAM',
+          content: Text('✓ Saved to Unsorted',
               style:
                   TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
           backgroundColor: Color(0xFF141416),
           duration: Duration(seconds: 2),
         ),
       );
-      _textController.clear();
-      FocusScope.of(context).unfocus();
+
+      // Navigate to Stream > Unsorted
+      if (mounted) {
+        context.read<NavigationNotifier>().goToStream(subTab: 'unsorted');
+      }
     }
   }
 
@@ -244,12 +277,12 @@ class _CaptureScreenState extends State<CaptureScreen>
       child: Column(
         children: [
           const SizedBox(height: 16),
-          // Mode Toggle
+          // Mode Toggle (Accessible: never color alone, distinct filled background)
           Container(
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              color: const Color(0xFF161618),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white12),
             ),
             padding: const EdgeInsets.all(4),
             child: Row(
@@ -260,30 +293,44 @@ class _CaptureScreenState extends State<CaptureScreen>
                     if (_isListening) _stopListening();
                     setState(() => _captureMode = 'voice');
                   },
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 9),
                     decoration: BoxDecoration(
                       color: _captureMode == 'voice'
-                          ? Theme.of(context).colorScheme.surface
+                          ? const Color(0xFF282308)
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: _captureMode == 'voice'
-                          ? [
-                              const BoxShadow(
-                                  color: Colors.black26, blurRadius: 4)
-                            ]
-                          : [],
-                    ),
-                    child: Text(
-                      'VOICE',
-                      style: TextStyle(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
                         color: _captureMode == 'voice'
-                            ? Theme.of(context).primaryColor
-                            : Colors.white54,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                            ? const Color(0xFFFFBF00)
+                            : Colors.transparent,
+                        width: 1.2,
                       ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.mic_outlined,
+                          size: 16,
+                          color: _captureMode == 'voice'
+                              ? const Color(0xFFFFBF00)
+                              : Colors.white54,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'VOICE',
+                          style: TextStyle(
+                            color: _captureMode == 'voice'
+                                ? const Color(0xFFFFBF00)
+                                : Colors.white54,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -292,30 +339,44 @@ class _CaptureScreenState extends State<CaptureScreen>
                     if (_isListening) _stopListening();
                     setState(() => _captureMode = 'text');
                   },
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 9),
                     decoration: BoxDecoration(
                       color: _captureMode == 'text'
-                          ? Theme.of(context).colorScheme.surface
+                          ? const Color(0xFF282308)
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: _captureMode == 'text'
-                          ? [
-                              const BoxShadow(
-                                  color: Colors.black26, blurRadius: 4)
-                            ]
-                          : [],
-                    ),
-                    child: Text(
-                      'TEXT',
-                      style: TextStyle(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
                         color: _captureMode == 'text'
-                            ? Theme.of(context).primaryColor
-                            : Colors.white54,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                            ? const Color(0xFFFFBF00)
+                            : Colors.transparent,
+                        width: 1.2,
                       ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.edit_note,
+                          size: 18,
+                          color: _captureMode == 'text'
+                              ? const Color(0xFFFFBF00)
+                              : Colors.white54,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'TEXT',
+                          style: TextStyle(
+                            color: _captureMode == 'text'
+                                ? const Color(0xFFFFBF00)
+                                : Colors.white54,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -324,10 +385,9 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
 
           Expanded(
-            child: Center(
-              child:
-                  _captureMode == 'voice' ? _buildVoiceMode() : _buildTextMode(),
-            ),
+            child: _captureMode == 'voice'
+                ? Center(child: _buildVoiceMode())
+                : _buildTextMode(),
           ),
         ],
       ),
@@ -576,45 +636,80 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Widget _buildTextMode() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _textController,
-            maxLines: 5,
-            style: const TextStyle(color: Colors.white, fontSize: 16),
-            decoration: InputDecoration(
-              hintText: 'Type your thought here...',
-              hintStyle: const TextStyle(color: Colors.white24),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+          // Text Input with Ctrl+Enter keyboard support on desktop
+          CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.enter, control: true):
+                  _submitText,
+              const SingleActivator(LogicalKeyboardKey.enter, meta: true):
+                  _submitText,
+            },
+            child: TextField(
+              controller: _textController,
+              maxLines: 7,
+              minLines: 4,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                height: 1.4,
               ),
-              contentPadding: const EdgeInsets.all(20),
+              decoration: InputDecoration(
+                hintText: 'Type your thought here...',
+                hintStyle: const TextStyle(color: Colors.white60, fontSize: 18),
+                filled: true,
+                fillColor: const Color(0xFF1B1B1E),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Colors.white24, width: 1.2),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide:
+                      const BorderSide(color: Color(0xFFFFBF00), width: 2.0),
+                ),
+                contentPadding: const EdgeInsets.all(20),
+              ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // Filled Gold Save Button (Full Width for mobile & desktop)
           ElevatedButton(
             onPressed: _submitText,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.surface,
-              side: const BorderSide(color: Colors.white10),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+              backgroundColor: const Color(0xFFFFBF00),
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 52),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(
-              'SAVE THOUGHT',
-              style: TextStyle(
-                color: Theme.of(context).primaryColor,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
+                borderRadius: BorderRadius.circular(14),
               ),
+              elevation: 2,
+            ),
+            child: const Text(
+              'Save to Unsorted',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // "Say where it goes" label + desktop shortcut hint
+          const Text(
+            'Saves to Unsorted · Press Ctrl+Enter to save',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ],
