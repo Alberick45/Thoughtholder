@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 class NavigationNotifier extends ChangeNotifier {
-  int _mainTabIndex = 1; // Default to Stream tab to show Stream view immediately
-  String _streamSubTab = 'unsorted'; // 'unsorted' | 'sorted' | 'done'
+  int _mainTabIndex = 0; // Open app in Capture
+  String _streamSubTab = 'sorted'; // When switching to Stream, Sorted is active
   bool _isTrashOpen = false;
   String? _selectedBucket;
 
@@ -15,13 +15,17 @@ class NavigationNotifier extends ChangeNotifier {
     if (_mainTabIndex != index) {
       _mainTabIndex = index;
       if (index == 1) {
-        // Tapping Stream returns from Trash to Stream
+        // Moving to Stream tab defaults to 'sorted'
+        _streamSubTab = 'sorted';
+        _selectedBucket = null;
         _isTrashOpen = false;
       }
       notifyListeners();
     } else if (index == 1 && _isTrashOpen) {
-      // Tapping Stream while already on Stream but Trash is open closes Trash
+      // Tapping Stream while Trash is open closes Trash and returns to Sorted
       _isTrashOpen = false;
+      _streamSubTab = 'sorted';
+      _selectedBucket = null;
       notifyListeners();
     }
   }

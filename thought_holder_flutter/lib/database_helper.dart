@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
@@ -21,8 +23,41 @@ class DatabaseHelper {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+
+    String path;
+    if (!kIsWeb && Platform.isWindows) {
+      // Use canonical application support directory on Windows
+      final appSupportDir = await getApplicationSupportDirectory();
+      final targetDir = Directory(join(appSupportDir.path, 'databases'));
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+      path = join(targetDir.path, filePath);
+
+      // Auto-migrate from development / debug databases if canonical DB is empty or missing
+      final targetFile = File(path);
+      if (!await targetFile.exists() || await targetFile.length() < 1000) {
+        final candidatePaths = [
+          r'C:\Users\PAAPA\Desktop\testwritingapp\thought_holder_flutter\build\windows\x64\runner\Debug\.dart_tool\sqflite_common_ffi\databases\thoughts.db',
+          r'C:\Users\PAAPA\Desktop\testwritingapp\thought_holder_flutter\.dart_tool\sqflite_common_ffi\databases\thoughts.db',
+          r'C:\Users\PAAPA\Desktop\testwritingapp\thought_holder_flutter\build\windows\x64\runner\Release\.dart_tool\sqflite_common_ffi\databases\thoughts.db',
+          join(Directory.current.path, '.dart_tool', 'sqflite_common_ffi', 'databases', filePath),
+        ];
+
+        for (final cand in candidatePaths) {
+          final candFile = File(cand);
+          if (await candFile.exists() && await candFile.length() > 5000) {
+            try {
+              await candFile.copy(path);
+              break;
+            } catch (_) {}
+          }
+        }
+      }
+    } else {
+      final dbPath = await getDatabasesPath();
+      path = join(dbPath, filePath);
+    }
 
     return await openDatabase(
       path,

@@ -439,15 +439,16 @@ class _StreamScreenState extends State<StreamScreen> {
     final best = provider.bestNextThought;
 
     if (sorted.isEmpty) {
+      final unsortedCount = provider.unsortedCount;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.folder_open, size: 56, color: Colors.white24),
-              SizedBox(height: 16),
-              Text(
+            children: [
+              const Icon(Icons.folder_open, size: 56, color: Colors.white24),
+              const SizedBox(height: 16),
+              const Text(
                 'No sorted ideas yet',
                 style: TextStyle(
                   color: Colors.white,
@@ -455,12 +456,37 @@ class _StreamScreenState extends State<StreamScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text(
-                'File ideas from the Unsorted tab into buckets to see them prioritized here.',
+                unsortedCount > 0
+                    ? 'You have $unsortedCount unsorted ideas waiting to be filed into buckets.'
+                    : 'File ideas from the Unsorted tab into buckets to see them prioritized here.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, fontSize: 16, height: 1.4),
+                style: const TextStyle(color: Colors.white54, fontSize: 16, height: 1.4),
               ),
+              if (unsortedCount > 0) ...[
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: () => nav.setStreamSubTab('unsorted'),
+                  icon: const Icon(Icons.inventory_2_outlined, color: Colors.black, size: 18),
+                  label: Text(
+                    'Go to Unsorted ($unsortedCount)',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFBF00),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
