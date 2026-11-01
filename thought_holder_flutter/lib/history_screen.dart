@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'thought_provider.dart';
 import 'settings_service.dart';
+import 'sound_service.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'sync_identity.dart';
@@ -35,6 +36,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   void _showUndoSnackBar(String message, [Future<void> Function()? onUndo]) {
     if (!mounted) return;
+    final settings = context.read<SettingsService>();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -49,8 +51,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         action: onUndo != null
             ? SnackBarAction(
                 label: 'Undo',
-                textColor: AppColors.of(context.read<SettingsService>().theme).gold,
+                textColor: AppColors.of(settings.theme).gold,
                 onPressed: () async {
+                  SoundService.instance.play(SoundEvent.undo, settings: settings);
                   await onUndo();
                 },
               )
@@ -161,6 +164,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       message = 'Put back "$ideaName" in Unsorted.';
     }
 
+    final settings = context.read<SettingsService>();
+    SoundService.instance.play(SoundEvent.drop, settings: settings);
+
     _showUndoSnackBar(message, () => _restoreThoughtState(snapshot, provider));
   }
 
@@ -231,6 +237,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _selectedIds.clear();
     });
 
+    final settings = context.read<SettingsService>();
+    SoundService.instance.play(SoundEvent.drop, settings: settings);
+
     final noun = count == 1 ? 'idea' : 'ideas';
     _showUndoSnackBar(
       'Put back $count $noun.',
@@ -281,6 +290,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _isSelectMode = false;
       _selectedIds.clear();
     });
+
+    final settings = context.read<SettingsService>();
+    SoundService.instance.play(SoundEvent.trash, settings: settings);
 
     final noun = count == 1 ? 'idea' : 'ideas';
     _showUndoSnackBar(
@@ -342,7 +354,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Navigator.pop(ctx);
                 final snapshot = Map<String, dynamic>.from(idea);
                 final ideaName = TitleGenerator.getIdeaName(idea);
+                final settings = context.read<SettingsService>();
                 await provider.moveToTrash(idea['id']);
+                SoundService.instance.play(SoundEvent.trash, settings: settings);
                 _showUndoSnackBar(
                   'Moved "$ideaName" to Trash.',
                   () => _restoreThoughtState(snapshot, provider),
@@ -398,7 +412,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
               Navigator.pop(ctx);
               final snapshot = Map<String, dynamic>.from(idea);
               final ideaName = TitleGenerator.getIdeaName(idea);
+              final settings = context.read<SettingsService>();
               await provider.moveToTrash(idea['id']);
+              SoundService.instance.play(SoundEvent.trash, settings: settings);
               _showUndoSnackBar(
                 'Moved "$ideaName" to Trash.',
                 () => _restoreThoughtState(snapshot, provider),
@@ -626,6 +642,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
                   }
                   await provider.updateContent(idea['id'], newContent, editedAt: now);
+                  final settings = context.read<SettingsService>();
+                  SoundService.instance.play(SoundEvent.save, settings: settings);
                   _showUndoSnackBar(
                     'Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}".',
                     () => _restoreThoughtState(snapshot, provider),
@@ -731,6 +749,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 await provider.fileThought(idea['id'], destination);
                 await provider.markDone(idea['id'], false);
 
+                final settings = context.read<SettingsService>();
+                SoundService.instance.play(SoundEvent.drop, settings: settings);
+
                 if (modalCtx.mounted && Navigator.canPop(modalCtx)) {
                   Navigator.pop(modalCtx);
                 }
@@ -740,6 +761,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   () => _restoreThoughtState(snapshot, provider),
                 );
               } catch (e) {
+                final settings = context.read<SettingsService>();
+                SoundService.instance.play(SoundEvent.error, settings: settings);
                 setPopupState(() {
                   isAdding = false;
                   errorMessage =

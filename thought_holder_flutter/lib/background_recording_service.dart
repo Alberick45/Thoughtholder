@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'settings_service.dart';
+import 'sound_service.dart';
 import 'thought_provider.dart';
 import 'voice_transcription_service.dart';
 
@@ -21,6 +22,7 @@ class BackgroundRecordingService extends ChangeNotifier {
   final VoiceTranscriptionService _transcriptionService =
       VoiceTranscriptionService();
 
+  SettingsService? _lastSettings;
   bool _isRecording = false;
   bool _isPaused = false;
   String? _pauseReason;
@@ -137,7 +139,17 @@ class BackgroundRecordingService extends ChangeNotifier {
 
   // --- Start Recording (Foreground Service on Android, Awake on Desktop) ---
   Future<bool> startRecording(SettingsService settings) async {
+    _lastSettings = settings;
     if (_isRecording) return false;
+
+    // Play recording started tone BEFORE opening microphone (Section 1 & 3)
+    try {
+      if (settings.soundsEnabled) {
+        await SoundService.instance.play(SoundEvent.recordStart, settings: settings);
+        await Future.delayed(const Duration(milliseconds: 140));
+      }
+    } catch (_) {}
+    SoundService.instance.notifyRecordingStarting();
 
     _durationSeconds = 0;
     _isPaused = false;
@@ -196,7 +208,8 @@ class BackgroundRecordingService extends ChangeNotifier {
   }
 
   // --- Stop Recording ---
-  Future<String?> stopRecording() async {
+  Future<String?> stopRecording({SettingsService? settings}) async {
+    final s = settings ?? _lastSettings;
     if (!_isRecording && _activeAudioPath == null) return null;
 
     final recordedPath = _activeAudioPath;
@@ -216,6 +229,14 @@ class BackgroundRecordingService extends ChangeNotifier {
         await _desktopRecorder.stop();
       } catch (_) {}
     }
+
+    SoundService.instance.notifyRecordingStopped();
+    // Play recording saved tone AFTER microphone closes (Section 1 & 3)
+    try {
+      if (s != null && s.soundsEnabled) {
+        await SoundService.instance.play(SoundEvent.recordSaved, settings: s);
+      }
+    } catch (_) {}
 
     notifyListeners();
 
@@ -274,9 +295,11 @@ class BackgroundRecordingService extends ChangeNotifier {
             'thought',
             tags: 'whisper-voice',
           );
+          SoundService.instance.play(SoundEvent.save, settings: settings);
           onFeedback(
             'Saved to Unsorted',
             onUndo: () {
+              SoundService.instance.play(SoundEvent.undo, settings: settings);
               final last = thoughtProvider.unsortedThoughts.firstOrNull;
               if (last != null) {
                 thoughtProvider.moveToTrash(last['id']);
@@ -298,6 +321,7 @@ class BackgroundRecordingService extends ChangeNotifier {
       'thought',
       tags: 'voice-pending-groq:$audioPath',
     );
+    SoundService.instance.play(SoundEvent.save, settings: settings);
 
     onFeedback(
       'Saved. Text will be added when Groq is available.',

@@ -8,6 +8,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'thought_provider.dart';
 import 'navigation_service.dart';
 import 'settings_service.dart';
+import 'sound_service.dart';
 import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'notifications_settings_screen.dart';
@@ -215,8 +216,159 @@ class _StreamScreenState extends State<StreamScreen> {
         action: SnackBarAction(
           label: 'UNDO',
           textColor: colors.gold,
-          onPressed: onUndo,
+          onPressed: () {
+            SoundService.instance.play(SoundEvent.undo, settings: settings);
+            onUndo();
+          },
         ),
+      ),
+    );
+  }
+
+  // --- First-Time Sound Choice Card (Section 2) ---
+  Widget _buildSoundChoiceCard(SettingsService settings, AppColors colors) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.gold.withValues(alpha: 0.6), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.volume_up_outlined, color: colors.gold, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Add soft sounds to buttons and actions?',
+                  style: appFont(
+                    color: colors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 420;
+              final buttons = [
+                // 1. "Try a sound" (plays the Save sound)
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      SoundService.instance.play(
+                        SoundEvent.save,
+                        settings: settings,
+                        preview: true,
+                      );
+                    },
+                    icon: Icon(Icons.play_arrow_rounded, color: colors.gold, size: 18),
+                    label: Text(
+                      'Try a sound',
+                      style: appFont(
+                        color: colors.gold,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: colors.gold),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+                // 2. "Turn on"
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      await settings.setSoundsEnabled(true);
+                      await settings.setSoundPromptAnswered(true);
+                      SoundService.instance.play(
+                        SoundEvent.save,
+                        settings: settings,
+                        preview: true,
+                      );
+                      setState(() {});
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.gold,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Turn on',
+                      style: appFont(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+                // 3. "No thanks"
+                SizedBox(
+                  height: 48,
+                  child: TextButton(
+                    onPressed: () async {
+                      await settings.setSoundsEnabled(false);
+                      await settings.setSoundPromptAnswered(true);
+                      setState(() {});
+                    },
+                    style: TextButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'No thanks',
+                      style: appFont(
+                        color: colors.mute,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ];
+
+              if (isNarrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    buttons[0],
+                    const SizedBox(height: 8),
+                    buttons[1],
+                    const SizedBox(height: 4),
+                    buttons[2],
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: buttons[0]),
+                  const SizedBox(width: 8),
+                  Expanded(child: buttons[1]),
+                  const SizedBox(width: 8),
+                  Expanded(child: buttons[2]),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -234,8 +386,13 @@ class _StreamScreenState extends State<StreamScreen> {
           Column(
             children: [
               const SizedBox(height: 12),
+              // First-time sound choice card (Section 2)
+              if (!settings.soundPromptAnswered) ...[
+                _buildSoundChoiceCard(settings, colors),
+                const SizedBox(height: 10),
+              ],
               // Top Navigation Pills: Unsorted (N) / Sorted / Done
-              _buildTopPills(nav, provider, colors),
+              _buildTopPills(nav, provider, colors, settings),
               const SizedBox(height: 8),
               // Subtitle
               _buildSubtitle(nav, colors),
@@ -243,7 +400,7 @@ class _StreamScreenState extends State<StreamScreen> {
               // Main Content Area
               Expanded(
                 child: nav.isTrashOpen
-                    ? _buildTrashScreen(provider, nav, colors)
+                    ? _buildTrashScreen(provider, nav, colors, settings)
                     : _buildCurrentTabContent(nav, provider, settings, colors),
               ),
             ],
@@ -258,6 +415,7 @@ class _StreamScreenState extends State<StreamScreen> {
               colors: colors,
               onTap: () {
                 setState(() => _deletingForeverId = null);
+                SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
                 nav.toggleTrash();
               },
             ),
@@ -309,6 +467,7 @@ class _StreamScreenState extends State<StreamScreen> {
     NavigationNotifier nav,
     ThoughtProvider provider,
     AppColors colors,
+    SettingsService settings,
   ) {
     final unsortedCount = provider.unsortedCount;
     final currentSubTab = nav.streamSubTab;
@@ -322,7 +481,12 @@ class _StreamScreenState extends State<StreamScreen> {
           label: 'Sorted',
           isSelected: !isTrashOpen && currentSubTab == 'sorted',
           colors: colors,
-          onTap: () => nav.setStreamSubTab('sorted'),
+          onTap: () {
+            if (currentSubTab != 'sorted' || isTrashOpen) {
+              SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+            }
+            nav.setStreamSubTab('sorted');
+          },
         ),
         const SizedBox(width: 8),
         // Unsorted with count
@@ -330,7 +494,12 @@ class _StreamScreenState extends State<StreamScreen> {
           label: 'Unsorted ($unsortedCount)',
           isSelected: !isTrashOpen && currentSubTab == 'unsorted',
           colors: colors,
-          onTap: () => nav.setStreamSubTab('unsorted'),
+          onTap: () {
+            if (currentSubTab != 'unsorted' || isTrashOpen) {
+              SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+            }
+            nav.setStreamSubTab('unsorted');
+          },
         ),
         // Done tab removed per user request
       ],
@@ -571,6 +740,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   child: OutlinedButton.icon(
                     onPressed: () {
                       provider.moveToTrash(thought['id']);
+                      SoundService.instance.play(SoundEvent.trash, settings: settings);
                       _showUndoSnackBar(
                         'Moved "$ideaName" to trash',
                         () => provider.restoreFromTrash(thought['id']),
@@ -990,6 +1160,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   child: PageView.builder(
                     controller: _bucketPageController,
                     onPageChanged: (idx) {
+                      SoundService.instance.play(SoundEvent.swipe, settings: settings);
                       setState(() => _bucketCurrentPage = idx);
                     },
                     itemCount: pageCount,
@@ -1148,6 +1319,7 @@ class _StreamScreenState extends State<StreamScreen> {
     ThoughtProvider provider,
     AppColors colors,
   ) {
+    final settings = context.read<SettingsService>();
     final ideaName = TitleGenerator.getIdeaName(thought);
     final timestamp = IdeaFormatters.formatReadableTimestamp(thought['created_at'] as int?);
     final captureIcon = IdeaFormatters.getCaptureIcon(thought['audio_path'] ?? thought['type']);
@@ -1285,6 +1457,7 @@ class _StreamScreenState extends State<StreamScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () {
                     provider.markDone(thought['id'], true);
+                    SoundService.instance.play(SoundEvent.done, settings: settings);
                     _showUndoSnackBar('Marked "$ideaName" as done', () {
                       provider.markDone(thought['id'], false);
                     });
@@ -1305,6 +1478,7 @@ class _StreamScreenState extends State<StreamScreen> {
               OutlinedButton.icon(
                 onPressed: () {
                   provider.moveToTrash(thought['id']);
+                  SoundService.instance.play(SoundEvent.trash, settings: settings);
                   _showUndoSnackBar('Moved "$ideaName" to trash', () {
                     provider.restoreFromTrash(thought['id']);
                   });
@@ -1710,6 +1884,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       provider.markDone(idea['id'], true);
+                      SoundService.instance.play(SoundEvent.done, settings: settings);
                       _showUndoSnackBar('Marked "$ideaName" as done', () {
                         provider.markDone(idea['id'], false);
                       });
@@ -1732,6 +1907,7 @@ class _StreamScreenState extends State<StreamScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     provider.moveToTrash(idea['id']);
+                    SoundService.instance.play(SoundEvent.trash, settings: settings);
                     _showUndoSnackBar('Moved "$ideaName" to trash', () {
                       provider.restoreFromTrash(idea['id']);
                     });
@@ -1989,6 +2165,7 @@ class _StreamScreenState extends State<StreamScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        final settings = ctx.read<SettingsService>();
         return Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height * 0.88,
@@ -2179,6 +2356,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   onPressed: () {
                     Navigator.pop(ctx);
                     provider.markDone(thought['id'], false);
+                    SoundService.instance.play(SoundEvent.drop, settings: settings);
                     _showUndoSnackBar(
                         'Put "$ideaName" back to active', () {
                       provider.markDone(thought['id'], true);
@@ -2204,6 +2382,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   onPressed: () {
                     Navigator.pop(ctx);
                     provider.moveToTrash(thought['id']);
+                    SoundService.instance.play(SoundEvent.trash, settings: settings);
                     _showUndoSnackBar('Moved "$ideaName" to trash', () {
                       provider.restoreFromTrash(thought['id']);
                     });
@@ -2257,6 +2436,7 @@ class _StreamScreenState extends State<StreamScreen> {
     ThoughtProvider provider,
     NavigationNotifier nav,
     AppColors colors,
+    SettingsService settings,
   ) {
     final trashedList = provider.trashedThoughts;
 
@@ -2378,6 +2558,7 @@ class _StreamScreenState extends State<StreamScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () {
                             provider.restoreFromTrash(thought['id']);
+                            SoundService.instance.play(SoundEvent.drop, settings: settings);
                             _showUndoSnackBar('Restored "$ideaName"', () {
                               provider.moveToTrash(thought['id']);
                             });
@@ -2466,6 +2647,7 @@ class _StreamScreenState extends State<StreamScreen> {
                           onPressed: () {
                             if (isConfirming) {
                               provider.deleteForever(thought['id']);
+                              SoundService.instance.play(SoundEvent.deleteForever, settings: settings);
                               setState(() => _deletingForeverId = null);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
@@ -2476,6 +2658,7 @@ class _StreamScreenState extends State<StreamScreen> {
                                 ),
                               );
                             } else {
+                              SoundService.instance.play(SoundEvent.tap, settings: settings);
                               setState(() => _deletingForeverId = thought['id']);
                             }
                           },
@@ -2650,6 +2833,8 @@ class _StreamScreenState extends State<StreamScreen> {
                   if (name.isNotEmpty) {
                     Navigator.pop(ctx);
                     await provider.addBucket(name, icon: selectedIcon);
+                    final settings = context.read<SettingsService>();
+                    SoundService.instance.play(SoundEvent.save, settings: settings);
                     if (fileThoughtId != null) {
                       await provider.fileThought(fileThoughtId, name);
                       _showUndoSnackBar('Filed to $name', () {
@@ -2792,6 +2977,8 @@ class _StreamScreenState extends State<StreamScreen> {
               if (newName.isNotEmpty && newName != oldName) {
                 Navigator.pop(ctx);
                 await provider.renameBucket(oldName, newName);
+                final settings = context.read<SettingsService>();
+                SoundService.instance.play(SoundEvent.save, settings: settings);
                 _showUndoSnackBar('Renamed bucket to "$newName"', () {});
               }
             },
@@ -3048,6 +3235,8 @@ class _StreamScreenState extends State<StreamScreen> {
                   final oldBucket = idea['bucket'] as String?;
                   Navigator.pop(ctx);
                   provider.unfileThought(idea['id']);
+                  final s = context.read<SettingsService>();
+                  SoundService.instance.play(SoundEvent.drop, settings: s);
                   _showUndoSnackBar('Moved "$ideaName" back to Unsorted', () {
                     if (oldBucket != null && oldBucket.isNotEmpty) {
                       provider.fileThought(idea['id'], oldBucket);
@@ -3075,6 +3264,8 @@ class _StreamScreenState extends State<StreamScreen> {
                 onTap: () {
                   Navigator.pop(ctx);
                   provider.markDone(idea['id'], true);
+                  final s = context.read<SettingsService>();
+                  SoundService.instance.play(SoundEvent.done, settings: s);
                   _showUndoSnackBar('Marked "$ideaName" as done', () {
                     provider.markDone(idea['id'], false);
                   });
@@ -3107,6 +3298,8 @@ class _StreamScreenState extends State<StreamScreen> {
                 onTap: () {
                   Navigator.pop(ctx);
                   provider.moveToTrash(idea['id']);
+                  final s = context.read<SettingsService>();
+                  SoundService.instance.play(SoundEvent.trash, settings: s);
                   _showUndoSnackBar('Moved "$ideaName" to trash', () {
                     provider.restoreFromTrash(idea['id']);
                   });
@@ -3240,6 +3433,14 @@ class _StreamScreenState extends State<StreamScreen> {
                 final oldBucket = idea['bucket'] as String?;
                 await provider.fileThought(idea['id'], destination);
 
+                final s = context.read<SettingsService>();
+                final remainingUnsorted = provider.unsortedThoughts.length;
+                if (remainingUnsorted == 0) {
+                  SoundService.instance.play(SoundEvent.celebrate, settings: s);
+                } else {
+                  SoundService.instance.play(SoundEvent.drop, settings: s);
+                }
+
                 if (modalCtx.mounted && Navigator.canPop(modalCtx)) {
                   Navigator.pop(modalCtx);
                 }
@@ -3259,6 +3460,8 @@ class _StreamScreenState extends State<StreamScreen> {
                   }
                 }
               } catch (e) {
+                final s = context.read<SettingsService>();
+                SoundService.instance.play(SoundEvent.error, settings: s);
                 setPopupState(() {
                   isAdding = false;
                   errorMessage =
@@ -3975,6 +4178,8 @@ class _StreamScreenState extends State<StreamScreen> {
                       await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
                     }
                     await provider.updateContent(idea['id'], newContent, editedAt: now);
+                    final s = context.read<SettingsService>();
+                    SoundService.instance.play(SoundEvent.save, settings: s);
                     _showUndoSnackBar('Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}"', () {});
                   }
                 },

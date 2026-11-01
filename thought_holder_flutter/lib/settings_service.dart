@@ -87,6 +87,71 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Sound Settings (Section 2) ---
+  bool get soundPromptAnswered => _box.get('sound_prompt_answered', defaultValue: false);
+
+  Future<void> setSoundPromptAnswered(bool value) async {
+    await _box.put('sound_prompt_answered', value);
+    notifyListeners();
+  }
+
+  bool get soundsEnabled => _box.get('sounds_enabled', defaultValue: false);
+
+  Future<void> setSoundsEnabled(bool value) async {
+    await _box.put('sounds_enabled', value);
+    notifyListeners();
+  }
+
+  double get soundVolume => (_box.get('sound_volume', defaultValue: 0.40) as num).toDouble();
+
+  Future<void> setSoundVolume(double value) async {
+    final clamped = value.clamp(0.0, 0.80);
+    await _box.put('sound_volume', clamped);
+    notifyListeners();
+  }
+
+  bool get soundGroupTaps => _box.get('sound_group_taps', defaultValue: true);
+
+  Future<void> setSoundGroupTaps(bool value) async {
+    await _box.put('sound_group_taps', value);
+    notifyListeners();
+  }
+
+  bool get soundGroupSwipes => _box.get('sound_group_swipes', defaultValue: true);
+
+  Future<void> setSoundGroupSwipes(bool value) async {
+    await _box.put('sound_group_swipes', value);
+    notifyListeners();
+  }
+
+  bool get soundGroupSaving => _box.get('sound_group_saving', defaultValue: true);
+
+  Future<void> setSoundGroupSaving(bool value) async {
+    await _box.put('sound_group_saving', value);
+    notifyListeners();
+  }
+
+  bool get soundGroupDeleting => _box.get('sound_group_deleting', defaultValue: true);
+
+  Future<void> setSoundGroupDeleting(bool value) async {
+    await _box.put('sound_group_deleting', value);
+    notifyListeners();
+  }
+
+  bool get soundGroupTyping => _box.get('sound_group_typing', defaultValue: false);
+
+  Future<void> setSoundGroupTyping(bool value) async {
+    await _box.put('sound_group_typing', value);
+    notifyListeners();
+  }
+
+  String get soundStyle => _box.get('sound_style', defaultValue: 'soft');
+
+  Future<void> setSoundStyle(String value) async {
+    await _box.put('sound_style', value);
+    notifyListeners();
+  }
+
   /// Check if Google Drive Backup is enabled.
   bool get googleDriveBackup => _box.get('google_drive_backup', defaultValue: false);
 

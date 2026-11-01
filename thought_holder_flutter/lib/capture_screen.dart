@@ -10,6 +10,7 @@ import 'app_theme.dart';
 import 'background_recording_service.dart';
 import 'navigation_service.dart';
 import 'settings_service.dart';
+import 'sound_service.dart';
 import 'thought_provider.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -229,7 +230,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     final provider = context.read<ThoughtProvider>();
     final nav = context.read<NavigationNotifier>();
 
-    final audioPath = await bgRecorder.stopRecording();
+    final audioPath = await bgRecorder.stopRecording(settings: settings);
     if (audioPath == null) return;
 
     // Navigate to Stream > Unsorted immediately
@@ -258,7 +259,10 @@ class _CaptureScreenState extends State<CaptureScreen>
                 ? SnackBarAction(
                     label: 'UNDO',
                     textColor: Colors.amber,
-                    onPressed: onUndo,
+                    onPressed: () {
+                      SoundService.instance.play(SoundEvent.undo, settings: settings);
+                      onUndo();
+                    },
                   )
                 : (onTryAgain != null
                     ? SnackBarAction(
@@ -279,12 +283,14 @@ class _CaptureScreenState extends State<CaptureScreen>
       FocusScope.of(context).unfocus();
       final provider = context.read<ThoughtProvider>();
       final nav = context.read<NavigationNotifier>();
+      final settings = context.read<SettingsService>();
       final messenger = ScaffoldMessenger.of(context);
       final createdThought = await provider.addThought(
         text,
         'thought',
         tags: 'text-entry',
       );
+      SoundService.instance.play(SoundEvent.save, settings: settings);
       _textController.clear();
       _prefsBox?.delete('draft_thought_text');
 
@@ -303,6 +309,7 @@ class _CaptureScreenState extends State<CaptureScreen>
               label: 'Undo',
               textColor: Colors.amber,
               onPressed: () {
+                SoundService.instance.play(SoundEvent.undo, settings: settings);
                 provider.moveToTrash(createdThought['id'] as String);
                 _textController.text = text;
               },
@@ -755,6 +762,16 @@ class _CaptureScreenState extends State<CaptureScreen>
             },
             child: TextField(
               controller: _textController,
+              onChanged: (val) {
+                final s = context.read<SettingsService>();
+                if (val.isNotEmpty && val.endsWith('\n')) {
+                  SoundService.instance.play(SoundEvent.keyEnter, settings: s);
+                } else if (val.isNotEmpty && val.endsWith(' ')) {
+                  SoundService.instance.play(SoundEvent.keySpace, settings: s);
+                } else {
+                  SoundService.instance.play(SoundEvent.key, settings: s);
+                }
+              },
               maxLines: 7,
               minLines: 4,
               style: appFont(

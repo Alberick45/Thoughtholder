@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'app_theme.dart';
 import 'settings_service.dart';
+import 'sound_service.dart';
 import 'ble_crypto.dart';
 import 'pairing_service.dart';
 import 'qr_scanner_widget.dart';
@@ -149,6 +150,8 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
           onPairingComplete: (realPeerName) {
             Navigator.pop(ctx);
             if (mounted) {
+              final settings = context.read<SettingsService>();
+              SoundService.instance.play(SoundEvent.celebrate, settings: settings);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Paired with $realPeerName.'),

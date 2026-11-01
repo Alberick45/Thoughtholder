@@ -23,6 +23,7 @@ import 'desktop_manager.dart';
 
 import 'background_recording_service.dart';
 import 'notification_service.dart';
+import 'sound_service.dart';
 import 'starter_buckets_screen.dart';
 
 void main() async {
@@ -54,6 +55,9 @@ void main() async {
     await DesktopManager.instance.init(settingsService);
   }
 
+  // Initialize SoundService (preloads feedback tones for low latency)
+  await SoundService.instance.preload();
+
   runApp(
     MultiProvider(
       providers: [
@@ -63,6 +67,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => BackgroundRecordingService()),
         ChangeNotifierProvider(create: (_) => NotificationService()),
         ChangeNotifierProvider<SettingsService>.value(value: settingsService),
+        ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
         Provider<GoogleDriveService>(create: (_) => GoogleDriveService()),
         Provider<HistoryService>.value(value: historyService),
         Provider<SenderService>.value(value: senderService),

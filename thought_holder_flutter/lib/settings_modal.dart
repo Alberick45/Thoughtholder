@@ -14,6 +14,7 @@ import 'starter_buckets_screen.dart';
 import 'paired_devices_screen.dart';
 import 'duplicate_finder_screen.dart';
 import 'history_screen.dart';
+import 'sound_service.dart';
 
 class SettingsModal extends StatefulWidget {
   const SettingsModal({Key? key}) : super(key: key);
@@ -920,6 +921,10 @@ class _SettingsModalState extends State<SettingsModal> {
                   ),
                   const SizedBox(height: 24),
 
+                  // --- Sounds Section (Section 2) ---
+                  _buildSoundsSection(settingsService, colors),
+                  const SizedBox(height: 24),
+
                   // --- BLE Sync Section (UPDATE 7) ---
                   Row(
                     children: [
@@ -1323,6 +1328,334 @@ const SizedBox(height: 24),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSoundsSection(SettingsService settings, AppColors colors) {
+    final soundsOn = settings.soundsEnabled;
+    final vol = settings.soundVolume;
+    final volPct = (vol * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.volume_up_outlined, color: colors.gold, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              'SOUNDS',
+              style: appFont(
+                color: colors.gold,
+                fontSize: 12,
+                letterSpacing: 1.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: colors.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Master Switch (48px control)
+              Container(
+                constraints: const BoxConstraints(minHeight: 48),
+                alignment: Alignment.center,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Sounds',
+                    style: appFont(
+                      color: colors.text,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Play soft feedback sounds for buttons and actions',
+                    style: appFont(color: colors.mute, fontSize: 13),
+                  ),
+                  value: soundsOn,
+                  activeThumbColor: colors.gold,
+                  onChanged: (val) async {
+                    await settings.setSoundsEnabled(val);
+                    await settings.setSoundPromptAnswered(true);
+                    if (val) {
+                      SoundService.instance.play(SoundEvent.switchOn, settings: settings, preview: true);
+                    }
+                    setState(() {});
+                  },
+                ),
+              ),
+
+              if (soundsOn) ...[
+                const Divider(color: Colors.white10, height: 28),
+
+                // Volume slider: default 40%, capped at 80% maximum
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Volume',
+                      style: appFont(
+                        color: colors.text,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      '$volPct%',
+                      style: appFont(
+                        color: colors.gold,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: colors.gold,
+                    inactiveTrackColor: colors.bg,
+                    thumbColor: colors.gold,
+                  ),
+                  child: Slider(
+                    value: vol,
+                    min: 0.0,
+                    max: 0.80, // Maximum 80% of full volume so nothing can be loud
+                    divisions: 16,
+                    onChanged: (val) async {
+                      await settings.setSoundVolume(val);
+                      setState(() {});
+                    },
+                    onChangeEnd: (val) {
+                      SoundService.instance.play(SoundEvent.save, settings: settings, preview: true);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Sound style: Soft (default) or Crisp
+                Text(
+                  'Sound style',
+                  style: appFont(
+                    color: colors.text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            await settings.setSoundStyle('soft');
+                            SoundService.instance.play(SoundEvent.save, settings: settings, preview: true);
+                            setState(() {});
+                          },
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: settings.soundStyle == 'soft'
+                                ? colors.gold.withValues(alpha: 0.2)
+                                : Colors.transparent,
+                            side: BorderSide(
+                              color: settings.soundStyle == 'soft' ? colors.gold : colors.line,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Soft (default)',
+                            style: appFont(
+                              color: settings.soundStyle == 'soft' ? colors.gold : colors.mute,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            await settings.setSoundStyle('crisp');
+                            SoundService.instance.play(SoundEvent.save, settings: settings, preview: true);
+                            setState(() {});
+                          },
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: settings.soundStyle == 'crisp'
+                                ? colors.gold.withValues(alpha: 0.2)
+                                : Colors.transparent,
+                            side: BorderSide(
+                              color: settings.soundStyle == 'crisp' ? colors.gold : colors.line,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Crisp',
+                            style: appFont(
+                              color: settings.soundStyle == 'crisp' ? colors.gold : colors.mute,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const Divider(color: Colors.white10, height: 28),
+
+                // Group switches, each with a "Test" button (48px controls)
+                _buildSoundGroupRow(
+                  title: 'Taps and buttons',
+                  subtitle: 'Button presses, tab switches, and popups',
+                  value: settings.soundGroupTaps,
+                  onChanged: (v) async {
+                    await settings.setSoundGroupTaps(v);
+                    setState(() {});
+                  },
+                  onTest: () => SoundService.instance.play(SoundEvent.tap, settings: settings, preview: true),
+                  colors: colors,
+                ),
+                const Divider(color: Colors.white10, height: 20),
+
+                _buildSoundGroupRow(
+                  title: 'Swipes and slides',
+                  subtitle: 'Tab swiping, bucket slider, and card swipe',
+                  value: settings.soundGroupSwipes,
+                  onChanged: (v) async {
+                    await settings.setSoundGroupSwipes(v);
+                    setState(() {});
+                  },
+                  onTest: () => SoundService.instance.play(SoundEvent.swipe, settings: settings, preview: true),
+                  colors: colors,
+                ),
+                const Divider(color: Colors.white10, height: 20),
+
+                _buildSoundGroupRow(
+                  title: 'Saving and finishing',
+                  subtitle: 'Saving thoughts, filing into buckets, and marking done',
+                  value: settings.soundGroupSaving,
+                  onChanged: (v) async {
+                    await settings.setSoundGroupSaving(v);
+                    setState(() {});
+                  },
+                  onTest: () => SoundService.instance.play(SoundEvent.done, settings: settings, preview: true),
+                  colors: colors,
+                ),
+                const Divider(color: Colors.white10, height: 20),
+
+                _buildSoundGroupRow(
+                  title: 'Deleting and warnings',
+                  subtitle: 'Move to trash, delete forever, undo, and error alerts',
+                  value: settings.soundGroupDeleting,
+                  onChanged: (v) async {
+                    await settings.setSoundGroupDeleting(v);
+                    setState(() {});
+                  },
+                  onTest: () => SoundService.instance.play(SoundEvent.trash, settings: settings, preview: true),
+                  colors: colors,
+                ),
+                const Divider(color: Colors.white10, height: 20),
+
+                _buildSoundGroupRow(
+                  title: 'Typing',
+                  subtitle: 'Plays a very soft sound for each key. Some people find this distracting.',
+                  value: settings.soundGroupTyping,
+                  onChanged: (v) async {
+                    await settings.setSoundGroupTyping(v);
+                    setState(() {});
+                  },
+                  onTest: () => SoundService.instance.play(SoundEvent.key, settings: settings, preview: true),
+                  colors: colors,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSoundGroupRow({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required VoidCallback onTest,
+    required AppColors colors,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: appFont(
+                    color: colors.text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: appFont(color: colors.mute, fontSize: 12, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 38,
+            child: OutlinedButton(
+              onPressed: onTest,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: colors.line),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                'Test',
+                style: appFont(color: colors.gold, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Switch(
+            value: value,
+            activeThumbColor: colors.gold,
+            onChanged: onChanged,
+          ),
+        ],
       ),
     );
   }
