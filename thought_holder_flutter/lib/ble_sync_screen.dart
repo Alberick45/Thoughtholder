@@ -481,18 +481,20 @@ class _BleSyncScreenState extends State<BleSyncScreen>
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton.icon(
-                          onPressed: _startTwoWaySync,
-                          icon: const Icon(Icons.sync, color: Colors.black, size: 22),
+                          onPressed: null,
+                          icon: Icon(Icons.sync_disabled, color: colors.mute, size: 22),
                           label: Text(
-                            'Sync now',
+                            'Sync is being updated.',
                             style: appFont(
-                              color: Colors.black,
+                              color: colors.mute,
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: colors.gold,
+                            backgroundColor: colors.card,
+                            disabledBackgroundColor: colors.card,
+                            side: BorderSide(color: colors.line),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),

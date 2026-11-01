@@ -3,10 +3,153 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart' as c;
 
 /// Cryptographic services for BLE pairing, encryption, and authentication.
 class BleCrypto {
   static final Random _secureRandom = Random.secure();
+  static final c.X25519 _x25519 = c.X25519();
+
+  /// Generates an ephemeral X25519 keypair for pairing.
+  static Future<c.SimpleKeyPair> generateX25519KeyPair() async {
+    return await _x25519.newKeyPair();
+  }
+
+  /// Exports an X25519 public key to base64Url string.
+  static Future<String> exportPublicKey(c.SimpleKeyPair keyPair) async {
+    final pubKey = await keyPair.extractPublicKey();
+    return base64Url.encode(pubKey.bytes);
+  }
+
+  /// Computes the 32-byte shared secret from local keypair and remote public key (base64Url).
+  static Future<List<int>> computeSharedSecret({
+    required c.SimpleKeyPair localKeyPair,
+    required String remotePublicKeyBase64,
+  }) async {
+    final remoteBytes = base64Url.decode(remotePublicKeyBase64);
+    if (remoteBytes.length != 32) {
+      throw const FormatException('Remote public key must be 32 bytes');
+    }
+    final remoteKey = c.SimplePublicKey(remoteBytes, type: c.KeyPairType.x25519);
+    final secret = await _x25519.sharedSecretKey(
+      keyPair: localKeyPair,
+      remotePublicKey: remoteKey,
+    );
+    return await secret.extractBytes();
+  }
+
+  /// Standard RFC 5869 HKDF-SHA256 Extract and Expand.
+  static Uint8List hkdfSha256(
+    List<int> ikm, {
+    List<int>? salt,
+    List<int>? info,
+    int length = 32,
+  }) {
+    final actualSalt = (salt == null || salt.isEmpty) ? Uint8List(32) : Uint8List.fromList(salt);
+    final actualInfo = info ?? <int>[];
+    // Extract: PRK = HMAC-SHA256(salt, IKM)
+    final prk = Hmac(sha256, actualSalt).convert(ikm).bytes;
+    // Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
+    final okm = Hmac(sha256, prk).convert([...actualInfo, 0x01]).bytes;
+    return Uint8List.fromList(okm.sublist(0, length));
+  }
+
+  /// Derives pairing keys from X25519 shared secret:
+  /// - 'authKey': 32 bytes List<int> (for SAS code and HMAC proof)
+  /// - 'syncKey': 32 bytes base64Url String (for session encryption)
+  static Map<String, dynamic> derivePairingKeys({
+    required List<int> sharedSecret,
+    required String salt,
+  }) {
+    final saltBytes = utf8.encode(salt);
+    final authKey = hkdfSha256(
+      sharedSecret,
+      salt: saltBytes,
+      info: utf8.encode('ThoughtHolder-Auth-v1'),
+      length: 32,
+    );
+    final syncKeyBytes = hkdfSha256(
+      sharedSecret,
+      salt: saltBytes,
+      info: utf8.encode('ThoughtHolder-Sync-v1'),
+      length: 32,
+    );
+    return {
+      'authKey': authKey,
+      'syncKey': base64Url.encode(syncKeyBytes),
+    };
+  }
+
+  /// Calculates deterministic 6-digit Short Authentication String (SAS).
+  /// Both devices calculate the exact same code from authKey and sorted IDs.
+  static String calculateSasCode({
+    required List<int> authKey,
+    required String deviceIdA,
+    required String deviceIdB,
+    required String token,
+  }) {
+    final sorted = [deviceIdA, deviceIdB]..sort();
+    final hmac = Hmac(sha256, authKey);
+    final digest = hmac.convert(utf8.encode('sas:${sorted[0]}:${sorted[1]}:$token')).bytes;
+    final int val = ((digest[0] & 0x7F) << 24) |
+        (digest[1] << 16) |
+        (digest[2] << 8) |
+        digest[3];
+    final code = (val % 900000 + 100000).toString();
+    return code;
+  }
+
+  /// Generates HMAC proof of possession of shared key.
+  static String generateHmacProof({
+    required List<int> authKey,
+    required String role,
+    required String myId,
+    required String peerId,
+    required String token,
+  }) {
+    final hmac = Hmac(sha256, authKey);
+    final digest = hmac.convert(utf8.encode('proof:$role:$myId:$peerId:$token')).bytes;
+    return base64Url.encode(digest);
+  }
+
+  /// Verifies HMAC proof in constant time.
+  static bool verifyHmacProof({
+    required List<int> authKey,
+    required String role,
+    required String myId,
+    required String peerId,
+    required String token,
+    required String proofToVerify,
+  }) {
+    try {
+      final expected = generateHmacProof(
+        authKey: authKey,
+        role: role,
+        myId: myId,
+        peerId: peerId,
+        token: token,
+      );
+      final a = base64Url.decode(expected);
+      final b = base64Url.decode(proofToVerify);
+      if (a.length != b.length) return false;
+      int diff = 0;
+      for (int i = 0; i < a.length; i++) {
+        diff |= a[i] ^ b[i];
+      }
+      return diff == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Generates a random 16-byte session token (base64Url).
+  static String generateSessionToken() {
+    final bytes = Uint8List(16);
+    for (int i = 0; i < 16; i++) {
+      bytes[i] = _secureRandom.nextInt(256);
+    }
+    return base64Url.encode(bytes);
+  }
 
   /// Generates a random 6-digit pairing verification code (e.g., "482910")
   static String generatePairingCode() {

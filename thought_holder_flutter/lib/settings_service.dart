@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'secure_storage_service.dart';
 
 /// Service to persist and manage application settings using Hive.
 class SettingsService extends ChangeNotifier {
@@ -18,6 +19,8 @@ class SettingsService extends ChangeNotifier {
       _box = await Hive.openBox('${_boxName}_temp');
     }
     await _tryLoadFromEnvFile();
+    await scrubNearbyDevices();
+    await _loadSecureKeys();
   }
 
   Future<void> _tryLoadFromEnvFile() async {
@@ -401,6 +404,64 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  final Map<String, String> _secureKeysCache = {};
+
+  /// Removes any legacy or unverified "Nearby Device" entries from storage.
+  Future<void> scrubNearbyDevices() async {
+    final map = getPairedDevices();
+    final keysToRemove = <String>[];
+    for (final entry in map.entries) {
+      final dev = entry.value;
+      if (dev is Map) {
+        final name = (dev['name'] as String? ?? '').trim();
+        final verified = dev['verified'] == true;
+        // Scrub if it has name "Nearby Device", empty name, or unverified legacy entry
+        if (name == 'Nearby Device' || name.isEmpty || !verified) {
+          keysToRemove.add(entry.key);
+        }
+      } else {
+        keysToRemove.add(entry.key);
+      }
+    }
+    if (keysToRemove.isNotEmpty) {
+      for (final k in keysToRemove) {
+        map.remove(k);
+        _secureKeysCache.remove(k);
+        try {
+          await SecureStorageService.deleteSharedKey(k);
+        } catch (_) {}
+      }
+      await _box.put('paired_devices_map', map);
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadSecureKeys() async {
+    final map = getPairedDevices();
+    bool migratedAny = false;
+    for (final entry in map.entries) {
+      final devId = entry.key;
+      final dev = entry.value;
+      try {
+        final sec = await SecureStorageService.getSharedKey(devId);
+        if (sec != null && sec.isNotEmpty) {
+          _secureKeysCache[devId] = sec;
+        } else if (dev is Map && dev['sharedKey'] != null) {
+          final legacyKey = dev['sharedKey'] as String;
+          if (legacyKey.isNotEmpty) {
+            await SecureStorageService.saveSharedKey(devId, legacyKey);
+            _secureKeysCache[devId] = legacyKey;
+            dev.remove('sharedKey');
+            migratedAny = true;
+          }
+        }
+      } catch (_) {}
+    }
+    if (migratedAny) {
+      await _box.put('paired_devices_map', map);
+    }
+  }
+
   Map<String, dynamic> getPairedDevices() {
     final raw = _box.get('paired_devices_map', defaultValue: <dynamic, dynamic>{});
     if (raw is Map) {
@@ -411,11 +472,17 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> savePairedDevice(String peerDeviceId, String peerName, String sharedKey, {int? lastSync}) async {
     final map = getPairedDevices();
+    try {
+      await SecureStorageService.saveSharedKey(peerDeviceId, sharedKey);
+    } catch (_) {}
+    _secureKeysCache[peerDeviceId] = sharedKey;
+
     map[peerDeviceId] = {
       'deviceId': peerDeviceId,
       'name': peerName,
-      'sharedKey': sharedKey,
-      'lastSync': lastSync ?? DateTime.now().millisecondsSinceEpoch,
+      'lastSync': lastSync,
+      'verified': true,
+      'pairedAt': DateTime.now().millisecondsSinceEpoch,
     };
     await _box.put('paired_devices_map', map);
     notifyListeners();
@@ -437,6 +504,10 @@ class SettingsService extends ChangeNotifier {
   Future<void> removePairedDevice(String peerDeviceId) async {
     final map = getPairedDevices();
     map.remove(peerDeviceId);
+    _secureKeysCache.remove(peerDeviceId);
+    try {
+      await SecureStorageService.deleteSharedKey(peerDeviceId);
+    } catch (_) {}
     await _box.put('paired_devices_map', map);
     notifyListeners();
   }
@@ -447,6 +518,9 @@ class SettingsService extends ChangeNotifier {
   }
 
   String? getDeviceSharedKey(String peerDeviceId) {
+    if (_secureKeysCache.containsKey(peerDeviceId)) {
+      return _secureKeysCache[peerDeviceId];
+    }
     final map = getPairedDevices();
     if (map.containsKey(peerDeviceId)) {
       return (map[peerDeviceId] as Map)['sharedKey'] as String?;
