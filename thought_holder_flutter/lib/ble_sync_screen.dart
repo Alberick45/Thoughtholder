@@ -7,6 +7,10 @@ import 'sender_service.dart';
 import 'receiver_service.dart';
 import 'transfer_progress.dart';
 import 'thought_provider.dart';
+import 'settings_service.dart';
+import 'app_theme.dart';
+import 'paired_devices_screen.dart';
+import 'ble_merge_engine.dart';
 
 class BleSyncScreen extends StatefulWidget {
   const BleSyncScreen({Key? key}) : super(key: key);
@@ -17,10 +21,17 @@ class BleSyncScreen extends StatefulWidget {
 
 class _BleSyncScreenState extends State<BleSyncScreen>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
   late BleSyncService _bleSync;
 
-  // Send state
+  // Symmetrical / 2-Way Sync State
+  bool _isSyncing = false;
+  String _syncStatusMessage = '';
+  double _syncProgressVal = 0.0;
+  MergeResult? _lastMergeResult;
+  bool _showSummary = false;
+  String? _connectedDeviceName;
+
+  // Legacy Send state (under Advanced)
   List<BleDevice> _devices = [];
   BleDevice? _sendingTo;
   TransferProgress? _sendProgress;
@@ -28,20 +39,23 @@ class _BleSyncScreenState extends State<BleSyncScreen>
   StreamSubscription? _sendProgressSub;
   bool _isScanning = false;
 
-  // Receive state
+  // Legacy Receive state (under Advanced)
   bool _isReceiving = false;
   TransferProgress? _receiveProgress;
   StreamSubscription? _receiveProgressSub;
-  StreamSubscription? _syncCompleteSub; // fires after DB merge is done
+  StreamSubscription? _syncCompleteSub;
+  StreamSubscription? _mergeProgressSub;
+
+  bool _isAdvancedExpanded = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
 
     final sender = context.read<SenderService>();
     final receiver = context.read<ReceiverService>();
-    _bleSync = BleSyncService(sender: sender, receiver: receiver);
+    final settings = context.read<SettingsService>();
+    _bleSync = BleSyncService(sender: sender, receiver: receiver, settings: settings);
 
     _devSub = _bleSync.nearbyDevices.listen((devices) {
       if (mounted) setState(() => _devices = devices);
@@ -57,27 +71,44 @@ class _BleSyncScreenState extends State<BleSyncScreen>
       if (mounted && p is TransferProgress) {
         setState(() => _receiveProgress = p);
         if (p.status == TransferStatus.failed) {
-          _showSnack('✗ Sync failed: ${p.error ?? 'Unknown error'}');
+          _showSnack('Sync failed: ${p.error ?? 'Unknown error'}');
         }
       }
     });
 
-    // After DB merge completes, reload ThoughtProvider so Stream screen updates
+    // 2-Way Merge Progress listener
+    _mergeProgressSub = _bleSync.mergeProgress.listen((update) {
+      if (!mounted) return;
+      setState(() {
+        _syncStatusMessage = update.message;
+        _syncProgressVal = update.progress;
+        if (update.isCompleted) {
+          _isSyncing = false;
+          _showSummary = true;
+          _lastMergeResult = update.result;
+          context.read<ThoughtProvider>().loadAll();
+        } else if (update.error != null) {
+          _isSyncing = false;
+          _showSnack('Sync stopped. Nothing was changed. Try again.');
+        }
+      });
+    });
+
     _syncCompleteSub = _bleSync.onSyncComplete.listen((count) {
       if (mounted) {
         context.read<ThoughtProvider>().loadThoughts();
-        _showSnack('✓ $count thought${count == 1 ? '' : 's'} synced to your stream!');
+        _showSnack('Synced $count ${count == 1 ? 'idea' : 'ideas'}!');
       }
     });
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
     _devSub?.cancel();
     _sendProgressSub?.cancel();
     _receiveProgressSub?.cancel();
     _syncCompleteSub?.cancel();
+    _mergeProgressSub?.cancel();
     if (_isScanning) _bleSync.stopScan();
     if (_isReceiving) _bleSync.stopReceiving();
     super.dispose();
@@ -88,11 +119,107 @@ class _BleSyncScreenState extends State<BleSyncScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: const Color(0xFF1F1F21),
+        backgroundColor: const Color(0xFF141416),
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
+
+  Future<void> _startTwoWaySync() async {
+    final settings = context.read<SettingsService>();
+    final pairedMap = settings.getPairedDevices();
+
+    if (pairedMap.isEmpty) {
+      // Need to pair first
+      final goPair = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          final colors = AppColors.of(settings.theme);
+          return AlertDialog(
+            backgroundColor: colors.card,
+            title: Text('Pair a device first', style: appFont(color: colors.text, fontWeight: FontWeight.bold)),
+            content: Text(
+              'To sync ideas safely, confirm a 6-digit code with your nearby phone or laptop.',
+              style: appFont(color: colors.mute, fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Not now', style: appFont(color: colors.mute)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colors.gold,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('Pair now'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (goPair == true && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PairedDevicesScreen()),
+        );
+      }
+      return;
+    }
+
+    // Pick first paired device
+    final targetEntry = pairedMap.values.first as Map;
+    final targetId = targetEntry['deviceId'] as String;
+    final targetName = targetEntry['name'] as String? ?? 'Nearby device';
+
+    setState(() {
+      _isSyncing = true;
+      _connectedDeviceName = targetName;
+      _syncStatusMessage = 'Connecting to $targetName...';
+      _syncProgressVal = 0.1;
+      _showSummary = false;
+    });
+
+    try {
+      final bleDevice = BleDevice(deviceId: targetId, name: targetName);
+      await _bleSync.syncTwoWay(bleDevice);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+        _showSnack('Sync stopped. Nothing was changed. Try again.');
+      }
+    }
+  }
+
+  void _cancelSync() {
+    setState(() {
+      _isSyncing = false;
+      _syncStatusMessage = '';
+    });
+    _showSnack('Sync cancelled. Nothing was changed.');
+  }
+
+  Future<void> _undoSync() async {
+    final provider = context.read<ThoughtProvider>();
+    final success = await provider.restoreFromLatestSnapshot();
+
+    if (mounted) {
+      setState(() => _showSummary = false);
+      if (success) {
+        _showSnack(
+          'Restored to previous state. Sync again on your other device if you want them to match.',
+        );
+      } else {
+        _showSnack('Could not restore previous state.');
+      }
+    }
+  }
+
+  // --- Advanced Legacy One-Way Controls ---
 
   Future<void> _toggleScan() async {
     if (_isScanning) {
@@ -132,9 +259,9 @@ class _BleSyncScreenState extends State<BleSyncScreen>
     setState(() { _isScanning = false; _sendingTo = device; _sendProgress = null; });
     try {
       await _bleSync.syncTo(device);
-      _showSnack('✓ Thoughts synced to ${device.name ?? device.deviceId}!');
+      _showSnack('Ideas copied to ${device.name ?? device.deviceId}!');
     } catch (e) {
-      _showSnack('✗ Sync failed: $e');
+      _showSnack('Sync failed: $e');
     } finally {
       if (mounted) setState(() { _sendingTo = null; _sendProgress = null; });
     }
@@ -142,383 +269,401 @@ class _BleSyncScreenState extends State<BleSyncScreen>
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<SettingsService>();
+    final colors = AppColors.of(settings.theme);
+    final lastSyncInfo = settings.getLastSyncInfo();
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0E0E10),
+      backgroundColor: colors.bg,
       appBar: AppBar(
-        title: const Text(
-          'BLE SYNC',
-          style: TextStyle(
-            color: Color(0xFFFFBF00),
+        title: Text(
+          'Sync with nearby device',
+          style: appFont(
+            color: colors.text,
             fontWeight: FontWeight.bold,
-            letterSpacing: 3,
-            fontSize: 13,
+            fontSize: 18,
           ),
         ),
         centerTitle: true,
-        backgroundColor: const Color(0xFF0E0E10),
-        iconTheme: const IconThemeData(color: Color(0xFF8E9192)),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFFFFBF00),
-          labelColor: const Color(0xFFFFBF00),
-          unselectedLabelColor: const Color(0xFF8E9192),
-          tabs: const [
-            Tab(icon: Icon(Icons.bluetooth_searching), text: 'SEND'),
-            Tab(icon: Icon(Icons.bluetooth_audio), text: 'RECEIVE'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildSendTab(),
-          _buildReceiveTab(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSendTab() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            title: 'NEARBY DEVICES',
-            subtitle: 'Scan to find a ThoughtHolder device in Receive mode.',
-          ),
-          const SizedBox(height: 16),
-
-          // Scan Toggle Button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _sendingTo != null ? null : _toggleScan,
-              icon: _isScanning
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Color(0xFF0E0E10),
-                      ),
-                    )
-                  : const Icon(Icons.search),
-              label: Text(_isScanning ? 'SCANNING...' : 'START SCAN'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFBF00),
-                foregroundColor: const Color(0xFF0E0E10),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                textStyle: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // Send progress
-          if (_sendProgress != null) ...[
-            _ProgressCard(progress: _sendProgress!, label: 'Sending...'),
-            const SizedBox(height: 16),
-          ],
-
-          // Device list
-          Expanded(
-            child: _devices.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.bluetooth_disabled,
-                            size: 48, color: Colors.white24),
-                        const SizedBox(height: 12),
-                        Text(
-                          _isScanning
-                              ? 'Looking for ThoughtHolder devices...'
-                              : 'Tap Scan to find nearby devices.',
-                          style: const TextStyle(color: Color(0xFF8E9192)),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.separated(
-                    itemCount: _devices.length,
-                    separatorBuilder: (_, __) =>
-                        const Divider(color: Colors.white10, height: 1),
-                    itemBuilder: (_, i) {
-                      final d = _devices[i];
-                      // We scan with a service UUID filter, so every result IS a ThoughtHolder device.
-                      // d.services may be null on Windows (not populated in scan results),
-                      // so we fall back to true — the hardware-level filter already guarantees it.
-                      final isSyncReceiver = d.services == null ||
-                          d.services!.isEmpty ||
-                          d.services!.any((s) =>
-                              s.toLowerCase() == '8a2ba5c0-0af1-4c8e-9a9e-3a1a2e6d9f01');
-                      final isSending = _sendingTo?.deviceId == d.deviceId;
-
-                      return ListTile(
-                        tileColor: isSyncReceiver
-                            ? Colors.teal.withOpacity(0.08)
-                            : null,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: isSyncReceiver
-                              ? const BorderSide(
-                                  color: Colors.teal, width: 1)
-                              : BorderSide.none,
-                        ),
-                        leading: Icon(
-                          isSyncReceiver
-                              ? Icons.sync
-                              : Icons.bluetooth,
-                          color: isSyncReceiver
-                              ? Colors.tealAccent
-                              : const Color(0xFF8E9192),
-                        ),
-                        title: Text(
-                          d.name?.isNotEmpty == true
-                              ? d.name!
-                              : 'Unknown Device',
-                          style: TextStyle(
-                            color: isSyncReceiver
-                                ? Colors.tealAccent
-                                : Colors.white70,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Text(
-                          isSyncReceiver
-                              ? 'QuickLink Device — tap to sync'
-                              : d.deviceId,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isSyncReceiver
-                                ? Colors.teal
-                                : Colors.white30,
-                          ),
-                        ),
-                        trailing: isSending
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xFFFFBF00),
-                                ),
-                              )
-                            : isSyncReceiver
-                                ? const Icon(Icons.chevron_right,
-                                    color: Colors.teal)
-                                : null,
-                        onTap: isSyncReceiver && _sendingTo == null
-                            ? () => _syncTo(d)
-                            : null,
-                      );
-                    },
-                  ),
+        backgroundColor: colors.bg,
+        elevation: 0,
+        iconTheme: IconThemeData(color: colors.gold),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.devices, color: colors.gold),
+            tooltip: 'Paired devices',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PairedDevicesScreen()),
+              );
+            },
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildReceiveTab() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            title: 'RECEIVE MODE',
-            subtitle:
-                'Make this device discoverable so another ThoughtHolder can sync to it.',
-          ),
-          const SizedBox(height: 24),
-
-          // Big receive toggle
-          Center(
-            child: GestureDetector(
-              onTap: _toggleReceive,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 140,
-                height: 140,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _isReceiving
-                      ? Colors.teal.withOpacity(0.15)
-                      : Colors.white.withOpacity(0.04),
-                  border: Border.all(
-                    color: _isReceiving ? Colors.tealAccent : Colors.white24,
-                    width: 2,
-                  ),
-                  boxShadow: _isReceiving
-                      ? [
-                          BoxShadow(
-                            color: Colors.teal.withOpacity(0.3),
-                            blurRadius: 30,
-                            spreadRadius: 5,
-                          )
-                        ]
-                      : [],
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _isReceiving
-                          ? Icons.bluetooth_audio
-                          : Icons.bluetooth_disabled,
-                      size: 48,
-                      color: _isReceiving
-                          ? Colors.tealAccent
-                          : Colors.white38,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _isReceiving ? 'LISTENING' : 'OFFLINE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                        color: _isReceiving
-                            ? Colors.tealAccent
-                            : Colors.white38,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          Center(
-            child: Text(
-              _isReceiving
-                  ? 'Tap to stop advertising'
-                  : 'Tap the button to start',
-              style: const TextStyle(color: Color(0xFF8E9192), fontSize: 13),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Receive progress
-          if (_receiveProgress != null)
-            _ProgressCard(progress: _receiveProgress!, label: 'Receiving...'),
-
-          if (_isReceiving && _receiveProgress == null) ...[
-            const Center(
-              child: Text(
-                'Waiting for a sender to connect...',
-                style: TextStyle(color: Color(0xFF8E9192)),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  const _SectionHeader({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF8E9192),
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(color: Colors.white38, fontSize: 12),
-        ),
-      ],
-    );
-  }
-}
-
-class _ProgressCard extends StatelessWidget {
-  final TransferProgress progress;
-  final String label;
-  const _ProgressCard({required this.progress, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final percent = (progress.progress * 100).toStringAsFixed(0);
-    final speed = progress.speedBytesPerSec;
-    final speedStr = speed > 1024
-        ? '${(speed / 1024).toStringAsFixed(1)} KB/s'
-        : '${speed.toStringAsFixed(0)} B/s';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                progress.status == TransferStatus.completed
-                    ? '✓ Done'
-                    : label,
-                style: const TextStyle(
-                    color: Color(0xFFFFBF00),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13),
-              ),
-              Text(
-                '$percent%',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              // ──────────────────────────────────────────────────────────────
+              // 1. WHILE SYNCING: ONE CALM SCREEN (Section 8)
+              // ──────────────────────────────────────────────────────────────
+              if (_isSyncing) ...[
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colors.gold, width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: CircularProgressIndicator(
+                          value: _syncProgressVal > 0 ? _syncProgressVal : null,
+                          strokeWidth: 3.5,
+                          color: colors.gold,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        _syncStatusMessage,
+                        textAlign: TextAlign.center,
+                        style: appFont(
+                          color: colors.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Connected to ${_connectedDeviceName ?? 'device'}.\nKeep this screen open while syncing.',
+                        textAlign: TextAlign.center,
+                        style: appFont(color: colors.mute, fontSize: 13, height: 1.4),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 48,
+                        width: 140,
+                        child: OutlinedButton(
+                          onPressed: _cancelSync,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.line),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Cancel',
+                            style: appFont(color: colors.mute, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ]
+
+              // ──────────────────────────────────────────────────────────────
+              // 2. RESULT SUMMARY SCREEN (Section 8)
+              // ──────────────────────────────────────────────────────────────
+              else if (_showSummary && _lastMergeResult != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colors.gold, width: 1.5),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle_outline, color: colors.done, size: 28),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Sync complete',
+                            style: appFont(
+                              color: colors.text,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _lastMergeResult!.toPlainSummary(),
+                        style: appFont(
+                          color: colors.text,
+                          fontSize: 15,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: () => setState(() => _showSummary = false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colors.gold,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Done',
+                            style: appFont(fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _undoSync,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.bad.withOpacity(0.6)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            'Undo this sync',
+                            style: appFont(color: colors.bad, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ]
+
+              // ──────────────────────────────────────────────────────────────
+              // 3. IDLE: UNIFIED "SYNC NOW" CARD (Section 8)
+              // ──────────────────────────────────────────────────────────────
+              else ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colors.line),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.sync, size: 48, color: colors.gold),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Keep both devices up to date',
+                        style: appFont(
+                          color: colors.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Make your phone and laptop end up with the same ideas, buckets and states.',
+                        textAlign: TextAlign.center,
+                        style: appFont(color: colors.mute, fontSize: 14, height: 1.3),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          onPressed: _startTwoWaySync,
+                          icon: const Icon(Icons.sync, color: Colors.black, size: 22),
+                          label: Text(
+                            'Sync now',
+                            style: appFont(
+                              color: Colors.black,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colors.gold,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        lastSyncInfo != null
+                            ? 'Last sync: $lastSyncInfo'
+                            : 'Last sync: Never synced',
+                        style: appFont(color: colors.mute, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // ──────────────────────────────────────────────────────────────
+              // 4. "ADVANCED" COLLAPSED SECTION (Section 8)
+              // ──────────────────────────────────────────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: colors.line),
+                ),
+                child: Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    initiallyExpanded: _isAdvancedExpanded,
+                    onExpansionChanged: (exp) => setState(() => _isAdvancedExpanded = exp),
+                    iconColor: colors.gold,
+                    collapsedIconColor: colors.mute,
+                    title: Text(
+                      'Advanced',
+                      style: appFont(
+                        color: colors.text,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'One-way copy modes',
+                      style: appFont(color: colors.mute, fontSize: 12),
+                    ),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              'Copies ideas to the other device. Does not bring back changes.',
+                              style: appFont(color: colors.mute, fontSize: 13, height: 1.4),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Send Only
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: colors.bg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: colors.line),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Send only',
+                                        style: appFont(
+                                          color: colors.text,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        height: 48,
+                                        child: ElevatedButton(
+                                          onPressed: _toggleScan,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: _isScanning ? colors.bad : colors.gold,
+                                            foregroundColor: Colors.black,
+                                          ),
+                                          child: Text(_isScanning ? 'Stop scan' : 'Scan devices'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_devices.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    ..._devices.map((d) => ListTile(
+                                          dense: true,
+                                          title: Text(d.name ?? d.deviceId, style: appFont(color: colors.text)),
+                                          trailing: SizedBox(
+                                            height: 48,
+                                            child: ElevatedButton(
+                                              onPressed: () => _syncTo(d),
+                                              style: ElevatedButton.styleFrom(backgroundColor: colors.gold),
+                                              child: const Text('Send'),
+                                            ),
+                                          ),
+                                        )),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Receive Only
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: colors.bg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: colors.line),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Receive only',
+                                        style: appFont(
+                                          color: colors.text,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      Text(
+                                        _isReceiving ? 'Waiting for sender...' : 'Offline',
+                                        style: appFont(
+                                          color: _isReceiving ? colors.done : colors.mute,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton(
+                                      onPressed: _toggleReceive,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _isReceiving ? colors.bad : colors.gold,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      child: Text(_isReceiving ? 'Stop receiving' : 'Start receiving'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress.progress,
-            backgroundColor: Colors.white12,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              progress.status == TransferStatus.completed
-                  ? Colors.tealAccent
-                  : const Color(0xFFFFBF00),
-            ),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${_bytes(progress.bytesTransferred)} / ${_bytes(progress.totalBytes)}  •  $speedStr',
-            style: const TextStyle(color: Colors.white38, fontSize: 11),
-          ),
-        ],
+        ),
       ),
     );
   }
-
-  String _bytes(int b) =>
-      b > 1024 * 1024
-          ? '${(b / 1024 / 1024).toStringAsFixed(1)} MB'
-          : b > 1024
-              ? '${(b / 1024).toStringAsFixed(1)} KB'
-              : '$b B';
 }

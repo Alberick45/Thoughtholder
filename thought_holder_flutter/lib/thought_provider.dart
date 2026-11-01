@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
+import 'settings_service.dart';
+import 'sync_identity.dart';
+import 'utils/title_generator.dart';
 
 class RankingEngine {
+  /// When values: 1 Later, 2 Soon, 3 Today
   static const Map<String, double> whenWeights = {
     'Today': 3.0,
     'Soon': 2.0,
     'Later': 1.0,
   };
 
+  /// Time values: 1 Quick, 2 Medium, 3 Long
   static const Map<String, double> timeWeights = {
     'Quick': 1.0,
     'Medium': 2.0,
@@ -15,10 +20,9 @@ class RankingEngine {
   };
 
   /// Single function calculating priority score:
-  /// score = when_value / time_value
-  /// when_value: Today=3, Soon=2, Later=1
-  /// time_value: Quick=1, Medium=2, Long=3
-  /// Extensible so user can add factors later (near-done boost, energy fit, waiting penalty).
+  /// score = when / time. Higher is better.
+  /// Ties: oldest idea first.
+  /// Extensible so user can add factors later (near-done boost, energy fit, waiting penalty, staleness bump).
   static double calculateScore(Map<String, dynamic> thought) {
     final whenStr = (thought['when_val'] as String?)?.trim() ?? 'Soon';
     final timeStr = (thought['time_val'] as String?)?.trim() ?? 'Medium';
@@ -28,10 +32,11 @@ class RankingEngine {
 
     double score = whenVal / timeVal;
 
-    // Hook for future factors:
+    // Extensible factors can be hooked here:
     // score += nearDoneBoost(thought);
     // score += energyFit(thought);
     // score -= waitingPenalty(thought);
+    // score += stalenessBump(thought);
 
     return score;
   }
@@ -48,7 +53,8 @@ class RankingEngine {
     return createdA.compareTo(createdB); // oldest first
   }
 
-  /// Plain-language reason for ranking
+  /// Plain reason under ranked idea:
+  /// e.g. "Quick to finish · due soon", "Takes a while · due today", "Medium effort · no rush"
   static String getReason(Map<String, dynamic> thought) {
     final whenStr = (thought['when_val'] as String?)?.trim() ?? 'Soon';
     final timeStr = (thought['time_val'] as String?)?.trim() ?? 'Medium';
@@ -58,14 +64,13 @@ class RankingEngine {
       case 'Quick':
         timePart = 'Quick to finish';
         break;
-      case 'Medium':
-        timePart = 'Moderate time';
-        break;
       case 'Long':
-        timePart = 'Needs focus';
+        timePart = 'Takes a while';
         break;
+      case 'Medium':
       default:
-        timePart = 'Quick to finish';
+        timePart = 'Medium effort';
+        break;
     }
 
     String whenPart;
@@ -77,10 +82,9 @@ class RankingEngine {
         whenPart = 'due soon';
         break;
       case 'Later':
-        whenPart = 'for later';
-        break;
       default:
-        whenPart = 'due soon';
+        whenPart = 'no rush';
+        break;
     }
 
     return '$timePart · $whenPart';
@@ -89,10 +93,40 @@ class RankingEngine {
 
 class ThoughtProvider with ChangeNotifier {
   List<Map<String, dynamic>> _thoughts = [];
-  List<String> _buckets = [];
+  List<Map<String, dynamic>> _buckets = [];
+  SettingsService? _settings;
+  final List<String> _sessionSkippedIds = [];
 
   List<Map<String, dynamic>> get thoughts => _thoughts;
-  List<String> get buckets => _buckets;
+  List<Map<String, dynamic>> get buckets => _buckets;
+  List<String> get bucketNames =>
+      _buckets.map((b) => b['name'] as String).toList();
+
+  void updateSettings(SettingsService settings) {
+    _settings = settings;
+    notifyListeners();
+  }
+
+  void skipThoughtForSession(String id) {
+    if (!_sessionSkippedIds.contains(id)) {
+      _sessionSkippedIds.add(id);
+      notifyListeners();
+    }
+  }
+
+  void clearSessionSkips() {
+    _sessionSkippedIds.clear();
+    notifyListeners();
+  }
+
+  String getBucketIcon(String bucketName) {
+    try {
+      final b = _buckets.firstWhere((item) => item['name'] == bucketName);
+      return (b['icon'] as String?) ?? 'folder';
+    } catch (_) {
+      return 'folder';
+    }
+  }
 
   ThoughtProvider() {
     loadAll();
@@ -103,10 +137,18 @@ class ThoughtProvider with ChangeNotifier {
       loadThoughts(),
       loadBuckets(),
     ]);
+    populateMissingTitlesInBackground();
   }
 
   Future<void> loadThoughts() async {
-    _thoughts = await DatabaseHelper.instance.fetchAllThoughts();
+    final raw = await DatabaseHelper.instance.fetchAllThoughts();
+    _thoughts = raw.map((t) {
+      final m = Map<String, dynamic>.from(t);
+      if (m['edited_at'] != null && m['editedAt'] == null) {
+        m['editedAt'] = m['edited_at'];
+      }
+      return m;
+    }).toList();
     notifyListeners();
   }
 
@@ -137,8 +179,42 @@ class ThoughtProvider with ChangeNotifier {
     return b != null && (b is String && b.trim().isNotEmpty);
   }
 
-  List<Map<String, dynamic>> get unsortedThoughts =>
-      _thoughts.where(isUnsorted).toList();
+  // UPDATE 6 - Section A:
+  // Unsorted shows ideas newest first by default.
+  // "Skip for now" sends the idea to the end of the Unsorted queue for this session.
+  List<Map<String, dynamic>> get unsortedThoughts {
+    final list = _thoughts.where(isUnsorted).toList();
+    final order = _settings?.unsortedOrder ?? 'newest';
+
+    if (order == 'oldest') {
+      list.sort((a, b) {
+        final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
+        final int cB = (b['created_at'] as num?)?.toInt() ?? 0;
+        return cA.compareTo(cB); // oldest first
+      });
+    } else {
+      list.sort((a, b) {
+        final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
+        final int cB = (b['created_at'] as num?)?.toInt() ?? 0;
+        return cB.compareTo(cA); // newest first (default)
+      });
+    }
+
+    final unskipped =
+        list.where((t) => !_sessionSkippedIds.contains(t['id'])).toList();
+    final skipped = <Map<String, dynamic>>[];
+    for (final id in _sessionSkippedIds) {
+      final found = list.firstWhere(
+        (t) => t['id'] == id,
+        orElse: () => {},
+      );
+      if (found.isNotEmpty) {
+        skipped.add(found);
+      }
+    }
+
+    return [...unskipped, ...skipped];
+  }
 
   List<Map<String, dynamic>> get sortedThoughts {
     final list = _thoughts.where(isSorted).toList();
@@ -157,7 +233,7 @@ class ThoughtProvider with ChangeNotifier {
   int get doneCount => doneThoughts.length;
   int get trashCount => trashedThoughts.length;
 
-  /// Single best next idea across all buckets
+  /// Single highest-scoring live idea across all buckets
   Map<String, dynamic>? get bestNextThought {
     final sorted = sortedThoughts;
     return sorted.isNotEmpty ? sorted.first : null;
@@ -173,19 +249,64 @@ class ThoughtProvider with ChangeNotifier {
     return list;
   }
 
+  int getIdeaCountForBucket(String bucketName) {
+    return _thoughts.where((t) {
+      if (isDone(t) || isTrashed(t)) return false;
+      return (t['bucket'] as String?)?.trim() == bucketName.trim();
+    }).length;
+  }
+
+  List<Map<String, dynamic>> getOrderedBuckets(String orderPreference) {
+    final list = List<Map<String, dynamic>>.from(_buckets);
+    if (orderPreference == 'ideas') {
+      list.sort((a, b) {
+        final countA = getIdeaCountForBucket(a['name'] as String);
+        final countB = getIdeaCountForBucket(b['name'] as String);
+        if (countB != countA) {
+          return countB.compareTo(countA); // most ideas first
+        }
+        return (a['name'] as String).compareTo(b['name'] as String);
+      });
+    } else {
+      list.sort((a, b) {
+        final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
+        final int cB = (b['created_at'] as num?)?.toInt() ?? 0;
+        return cA.compareTo(cB); // creation order
+      });
+    }
+    return list;
+  }
+
   // --- Actions ---
 
-  Future<void> addThought(
+  Future<Map<String, dynamic>> addThought(
     String content,
     String type, {
     String tags = '',
     String? bucket,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
+    final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
+    final id = SyncIdentity.newUuid();
+
+    String? bucketId;
+    if (bucket != null && bucket.trim().isNotEmpty) {
+      final bMatch = _buckets.firstWhere(
+        (b) => (b['name'] as String).trim().toLowerCase() == bucket.trim().toLowerCase(),
+        orElse: () => {},
+      );
+      if (bMatch.isNotEmpty) {
+        bucketId = bMatch['id'] as String?;
+      }
+    }
+
+    final autoTitle = TitleGenerator.generate(content);
     final thought = {
-      'id': UniqueKey().toString(),
+      'id': id,
       'thought_id': 'LOG-${now % 10000}',
       'content': content,
+      'title': autoTitle,
+      'title_source': 'auto',
       'type': type,
       'status': 'active',
       'tags': tags,
@@ -195,22 +316,59 @@ class ThoughtProvider with ChangeNotifier {
       'stale_score': 0,
       'linked_thoughts': '[]',
       'bucket': bucket,
+      'bucket_id': bucketId,
       'when_val': 'Soon',
       'time_val': 'Medium',
       'done': 0,
       'trashed': 0,
+      'edited_at': null,
+      // 'editedAt' column does not exist in the schema; keep for legacy compatibility only in read path
+      'updated_at': Hlc.now(deviceId).toString(),
+      'updated_by': deviceId,
+      'revision': 1,
     };
 
-    await DatabaseHelper.instance.insertThought(thought);
+    _sessionSkippedIds.remove(thought['id']);
+    await DatabaseHelper.instance.insertThought(thought, deviceId: deviceId);
+    await loadThoughts();
+    return thought;
+  }
+
+  Future<void> updateThoughtTitle(String id, String title,
+      {String titleSource = 'user'}) async {
+    await DatabaseHelper.instance
+        .updateThoughtTitle(id, title, titleSource: titleSource);
     await loadThoughts();
   }
 
+  bool _isPopulatingTitles = false;
+  Future<void> populateMissingTitlesInBackground() async {
+    if (_isPopulatingTitles) return;
+    _isPopulatingTitles = true;
+    Future.microtask(() async {
+      try {
+        while (true) {
+          final count =
+              await DatabaseHelper.instance.populateMissingTitlesBatch(batchSize: 200);
+          if (count == 0) break;
+          await loadThoughts();
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+      } catch (_) {
+      } finally {
+        _isPopulatingTitles = false;
+      }
+    });
+  }
+
   Future<void> fileThought(String id, String bucket) async {
+    _sessionSkippedIds.remove(id);
     await DatabaseHelper.instance.updateThoughtBucket(id, bucket);
     await loadThoughts();
   }
 
   Future<void> unfileThought(String id) async {
+    _sessionSkippedIds.remove(id);
     await DatabaseHelper.instance.updateThoughtBucket(id, null);
     await loadThoughts();
   }
@@ -267,6 +425,7 @@ class ThoughtProvider with ChangeNotifier {
   }
 
   Future<void> moveToTrash(String id) async {
+    _sessionSkippedIds.remove(id);
     await DatabaseHelper.instance.updateThoughtTrashed(id, true);
     await loadThoughts();
   }
@@ -277,6 +436,7 @@ class ThoughtProvider with ChangeNotifier {
   }
 
   Future<void> deleteForever(String id) async {
+    _sessionSkippedIds.remove(id);
     await DatabaseHelper.instance.deleteThought(id);
     await loadThoughts();
   }
@@ -286,16 +446,44 @@ class ThoughtProvider with ChangeNotifier {
     await loadThoughts();
   }
 
-  Future<void> updateContent(String id, String content) async {
-    await DatabaseHelper.instance.updateThoughtContent(id, content);
+  Future<void> updateContent(String id, String content, {int? editedAt}) async {
+    final now = editedAt ?? DateTime.now().millisecondsSinceEpoch;
+    await DatabaseHelper.instance.updateThoughtContent(id, content, editedAt: now);
     await loadThoughts();
   }
 
-  Future<void> addBucket(String name) async {
+  Future<String> addBucket(String name, {String icon = 'folder'}) async {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
-    await DatabaseHelper.instance.insertBucket(trimmed);
+    if (trimmed.isEmpty) return '';
+    final existing = _buckets.firstWhere(
+      (b) =>
+          (b['name'] as String).trim().toLowerCase() == trimmed.toLowerCase(),
+      orElse: () => {},
+    );
+    if (existing.isNotEmpty) {
+      return existing['name'] as String;
+    }
+    await DatabaseHelper.instance.insertBucket(trimmed, icon: icon);
     await loadBuckets();
+    return trimmed;
+  }
+
+  Future<void> renameBucket(String oldName, String newName) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return;
+    await DatabaseHelper.instance.renameBucket(oldName, trimmed);
+    await loadAll();
+  }
+
+  Future<void> updateBucketIcon(String name, String icon) async {
+    await DatabaseHelper.instance.updateBucketIcon(name, icon);
+    await loadBuckets();
+  }
+
+  Future<int> deleteBucket(String name) async {
+    final unfiledCount = await DatabaseHelper.instance.deleteBucket(name);
+    await loadAll();
+    return unfiledCount;
   }
 
   // --- LOG-149 Split Helper ---
@@ -346,6 +534,25 @@ class ThoughtProvider with ChangeNotifier {
       }
     }
 
+    await loadAll();
+  }
+
+  /// Restores database to snapshot taken before last sync (Section 5 & 8)
+  Future<bool> restoreFromLatestSnapshot() async {
+    final success = await DatabaseHelper.instance.restoreLatestSnapshot();
+    if (success) {
+      await loadAll();
+    }
+    return success;
+  }
+
+  /// Merges duplicate ideas, keeping the designated winner and deleting duplicates (Section 4)
+  Future<void> mergeDuplicates(String keepId, List<String> duplicateIds) async {
+    for (final id in duplicateIds) {
+      if (id != keepId) {
+        await DatabaseHelper.instance.deleteThought(id);
+      }
+    }
     await loadAll();
   }
 }

@@ -4,14 +4,15 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 import 'thought_provider.dart';
 import 'utils/nlp_engine.dart';
+import 'utils/title_generator.dart';
 
 class IdeaDetailScreen extends StatefulWidget {
   final Map<String, dynamic> thought;
 
-  const IdeaDetailScreen({Key? key, required this.thought}) : super(key: key);
+  const IdeaDetailScreen({super.key, required this.thought});
 
   @override
-  _IdeaDetailScreenState createState() => _IdeaDetailScreenState();
+  State<IdeaDetailScreen> createState() => _IdeaDetailScreenState();
 }
 
 class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
@@ -35,12 +36,70 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
   Future<void> _launchSearch(String query) async {
     final Uri url = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query)}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not launch search for $query')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not launch search for $query')));
+      }
     }
+  }
+
+  void _showEditDialog(
+    BuildContext context,
+    ThoughtProvider provider,
+    Map<String, dynamic> thought,
+  ) {
+    final thoughtId = thought['thought_id'] as String? ?? 'LOG';
+    final controller = TextEditingController(text: thought['content'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        title: Text('Edit $thoughtId', style: const TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Edit your idea...',
+            hintStyle: TextStyle(color: Colors.white38),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newContent = controller.text.trim();
+              if (newContent.isNotEmpty) {
+                Navigator.pop(ctx);
+                final now = DateTime.now().millisecondsSinceEpoch;
+                await provider.updateContent(thought['id'], newContent,
+                    editedAt: now);
+                setState(() {
+                  keywords = NLPEngine.extractKeywords(newContent, limit: 6);
+                });
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final provider = Provider.of<ThoughtProvider>(context);
+    final currentThought = provider.thoughts.firstWhere(
+      (t) => t['id'] == widget.thought['id'],
+      orElse: () => widget.thought,
+    );
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
@@ -51,10 +110,23 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          widget.thought['thought_id'] ?? 'Detail',
-          style: TextStyle(color: Theme.of(context).primaryColor, fontSize: 14, letterSpacing: 1.2),
+          TitleGenerator.getIdeaName(currentThought),
+          style: TextStyle(
+            color: Theme.of(context).primaryColor,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, color: Colors.white70),
+            onPressed: () => _showEditDialog(context, provider, currentThought),
+            tooltip: 'Edit idea',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -62,7 +134,7 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeroHeader(context),
+              _buildHeroHeader(context, currentThought),
               const SizedBox(height: 30),
               if (similarThoughts.isNotEmpty) ...[
                 _buildSectionTitle('NEURAL GRAPH'),
@@ -89,30 +161,69 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
     );
   }
 
-  Widget _buildHeroHeader(BuildContext context) {
+  String _formatDate(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  Widget _buildHeroHeader(BuildContext context, Map<String, dynamic> thought) {
+    final editedVal =
+        thought['edited_at'] ?? thought['editedAt'];
+    DateTime? editedDate;
+    if (editedVal is int) {
+      editedDate = DateTime.fromMillisecondsSinceEpoch(editedVal);
+    } else if (editedVal is String) {
+      editedDate = DateTime.tryParse(editedVal);
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).primaryColor.withOpacity(0.3)),
+        border: Border.all(color: Theme.of(context).primaryColor.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
-            color: Theme.of(context).primaryColor.withOpacity(0.1),
+            color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
             blurRadius: 20,
             spreadRadius: -5,
           )
         ],
       ),
-      child: Text(
-        widget.thought['content'] ?? '',
-        style: const TextStyle(
-          fontSize: 18,
-          height: 1.6,
-          color: Colors.white,
-          fontWeight: FontWeight.w500,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            thought['content'] ?? '',
+            style: const TextStyle(
+              fontSize: 18,
+              height: 1.6,
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (editedDate != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Icon(Icons.edit_outlined, size: 14, color: Colors.white54),
+                const SizedBox(width: 6),
+                Text(
+                  'Edited ${_formatDate(editedDate)}',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

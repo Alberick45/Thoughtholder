@@ -46,3 +46,9 @@ _archive_old_app/
 .pub-cache/
 .pub/
 **/build/
+
+# Backups & Databases
+backups/
+*.db
+*.db-wal
+*.db-journal

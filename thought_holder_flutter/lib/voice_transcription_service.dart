@@ -46,8 +46,6 @@ class VoiceTranscriptionService {
   // Fallback state
   String _fallbackCommitted = '';
   String _fallbackSegment = '';
-  bool _wantListening = false;
-  int _fallbackRetryCount = 0;
   Timer? _fallbackRestartTimer;
   String? _fallbackLocaleId;
   bool _speechReady = false;
@@ -126,8 +124,6 @@ class VoiceTranscriptionService {
     _currentEngine = TranscriptionEngine.fallbackDevice;
     _fallbackCommitted = '';
     _fallbackSegment = '';
-    _wantListening = true;
-    _fallbackRetryCount = 0;
 
     await _initFallbackSTT();
     _startFallbackListen(settings, onLiveText, onAmplitude);
@@ -199,7 +195,6 @@ class VoiceTranscriptionService {
     _amplitudeTimer = null;
 
     if (_currentEngine == TranscriptionEngine.fallbackDevice) {
-      _wantListening = false;
       _fallbackRestartTimer?.cancel();
       try {
         await _speechToText.stop();
@@ -267,6 +262,14 @@ class VoiceTranscriptionService {
         errorMessage: 'Network error. Audio saved offline and will transcribe when online.',
       );
     }
+  }
+
+  Future<String> transcribeAudioFile(
+    String filePath,
+    String apiKey,
+    String prompt,
+  ) {
+    return _transcribeWithGroq(filePath: filePath, apiKey: apiKey, prompt: prompt);
   }
 
   /// Multi-part POST to Groq Whisper endpoint

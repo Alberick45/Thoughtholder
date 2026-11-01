@@ -17,15 +17,14 @@ class ThoughtWidgetProvider : HomeWidgetProvider() {
     ) {
         appWidgetIds.forEach { id ->
             val views = RemoteViews(context.packageName, R.layout.thought_widget).apply {
+                // UPDATE 5: One small widget with a single big "Capture" button and the app name.
+                // Tapping opens Capture idle. No recording, no text from user ideas on the widget.
                 val pending = HomeWidgetLaunchIntent.getActivity(
                     context, MainActivity::class.java,
-                    Uri.parse("thoughtholder://record")
+                    Uri.parse("thoughtholder://capture")
                 )
                 setOnClickPendingIntent(R.id.widget_root, pending)
-                setTextViewText(
-                    R.id.widget_text,
-                    widgetData.getString("last_thought", "Tap to record a thought")
-                )
+                setOnClickPendingIntent(R.id.widget_capture_btn, pending)
             }
             appWidgetManager.updateAppWidget(id, views)
         }

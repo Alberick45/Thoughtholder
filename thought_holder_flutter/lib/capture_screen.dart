@@ -1,70 +1,54 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:home_widget/home_widget.dart';
-import 'thought_provider.dart';
-import 'gamification_provider.dart';
-import 'record_trigger.dart';
-import 'settings_service.dart';
-import 'voice_transcription_service.dart';
-import 'navigation_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'app_theme.dart';
+import 'background_recording_service.dart';
+import 'navigation_service.dart';
+import 'settings_service.dart';
+import 'thought_provider.dart';
 
 class CaptureScreen extends StatefulWidget {
-  const CaptureScreen({Key? key}) : super(key: key);
+  const CaptureScreen({super.key});
 
   @override
-  _CaptureScreenState createState() => _CaptureScreenState();
+  State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
 class _CaptureScreenState extends State<CaptureScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  final VoiceTranscriptionService _transcriptionService =
-      VoiceTranscriptionService();
-
-  bool _isListening = false;
-  bool _isTranscribing = false;
-  TranscriptionEngine? _activeEngine;
-
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
-
+    with SingleTickerProviderStateMixin {
   String _captureMode = 'voice'; // 'voice' | 'text'
   final TextEditingController _textController = TextEditingController();
   Box? _prefsBox;
 
-  String _committedText = '';
-  double _soundLevel = 0.0;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
 
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
+
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    recordRequested.addListener(_onRecordRequested);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _onRecordRequested();
-      _checkPendingRecordings();
-    });
     _initDraftStorage();
   }
 
   Future<void> _initDraftStorage() async {
     try {
       _prefsBox = await Hive.openBox('app_preferences');
-      final draft = _prefsBox?.get('draft_thought_text', defaultValue: '') as String?;
+      final draft =
+          _prefsBox?.get('draft_thought_text', defaultValue: '') as String?;
       if (draft != null && draft.isNotEmpty && _textController.text.isEmpty) {
         _textController.text = draft;
       }
@@ -76,237 +60,316 @@ class _CaptureScreenState extends State<CaptureScreen>
     _prefsBox?.put('draft_thought_text', _textController.text);
   }
 
-  void _onRecordRequested() {
-    if (!recordRequested.value) return;
-    recordRequested.value = false;
-    setState(() => _captureMode = 'voice');
-    if (_isListening) {
-      _stopListening();
-    } else {
-      _startListening();
-    }
-  }
-
-  Future<void> _checkPendingRecordings() async {
-    try {
-      final settings = context.read<SettingsService>();
-      final recovered =
-          await _transcriptionService.retryPendingRecordings(settings);
-      if (recovered.isNotEmpty && mounted) {
-        for (final text in recovered) {
-          context.read<ThoughtProvider>().addThought(
-                text,
-                'thought',
-                tags: 'whisper-offline-retry',
-              );
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '✓ Transcribed ${recovered.length} pending offline thoughts with Whisper AI!',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            backgroundColor: Colors.teal.shade900,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } catch (_) {}
-  }
-
   @override
   void dispose() {
-    _textController.removeListener(_onDraftChanged);
-    recordRequested.removeListener(_onRecordRequested);
-    _transcriptionService.dispose();
-    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _textController.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && _isListening) {
-      _stopListening();
-    }
-  }
-
-  Future<void> _startListening() async {
-    if (_isListening || _isTranscribing) return;
-
+  // --- Start Recording Flow (UPDATE 4 & 5) ---
+  Future<void> _onRecordPressed() async {
     final settings = context.read<SettingsService>();
-    _committedText = '';
-    _soundLevel = 0.0;
+    final bgRecorder = context.read<BackgroundRecordingService>();
 
-    final engine = await _transcriptionService.start(
-      settings: settings,
-      onLiveText: (text) {
-        if (mounted) {
-          setState(() {
-            _committedText = text;
-          });
-        }
-      },
-      onAmplitude: (normalized) {
-        if (mounted) {
-          setState(() {
-            _soundLevel = normalized;
-          });
-        }
-      },
-    );
+    // 1. Microphone permission with short plain explanation first
+    final micStatus = await Permission.microphone.status;
+    if (!micStatus.isGranted) {
+      if (!mounted) return;
+      final proceed = await _showPermissionExplanationDialog(context);
+      if (!proceed) return;
 
-    if (mounted) {
-      setState(() {
-        _isListening = true;
-        _activeEngine = engine;
-      });
+      final res = await Permission.microphone.request();
+      if (!res.isGranted) return;
     }
-  }
 
-  Future<void> _stopListening() async {
-    if (!_isListening) return;
-
-    final settings = context.read<SettingsService>();
-
-    setState(() {
-      _isListening = false;
-      if (_activeEngine == TranscriptionEngine.whisper) {
-        _isTranscribing = true;
+    // 2. Notification permission on Android 13+
+    if (!kIsWeb && Platform.isAndroid) {
+      final notifStatus = await Permission.notification.status;
+      if (!notifStatus.isGranted) {
+        await Permission.notification.request();
       }
-    });
-
-    final result = await _transcriptionService.stop(settings);
-
-    if (mounted) {
-      setState(() {
-        _isTranscribing = false;
-        _soundLevel = 0.0;
-      });
     }
 
-    if (result.pendingOffline && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '✓ Audio saved offline. Will auto-transcribe with Whisper when connected.',
-            style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
+    // 3. Web warning (UPDATE 4 - Section E)
+    if (kIsWeb) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Keep this screen on while recording.'),
+            duration: Duration(seconds: 4),
           ),
-          backgroundColor: Color(0xFF141416),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    if (result.text.isNotEmpty && mounted) {
-      final isWhisper = result.engine == TranscriptionEngine.whisper;
-      context.read<ThoughtProvider>().addThought(
-            result.text,
-            'thought',
-            tags: isWhisper ? 'whisper-ai' : 'voice-fallback',
-          );
-      context.read<GamificationProvider>().captureVoice();
-
-      if (!kIsWeb && Platform.isAndroid) {
-        await HomeWidget.saveWidgetData<String>('last_thought', result.text);
-        await HomeWidget.updateWidget(
-          qualifiedAndroidName:
-              'com.example.thought_holder_flutter.ThoughtWidgetProvider',
         );
       }
+    }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isWhisper ? '✓ Transcribed & saved to Unsorted' : '✓ Saved to Unsorted',
-            style: const TextStyle(
-                color: Colors.amber, fontWeight: FontWeight.bold),
+    // 4. First-time recording privacy notice (UPDATE 4 - Section H)
+    if (!settings.hasSeenRecordingPrivacyNotice && mounted) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.of(settings.theme).card,
+          title: Text(
+            'Your voice stays private',
+            style: appFont(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
           ),
-          backgroundColor: const Color(0xFF141416),
-          duration: const Duration(seconds: 2),
+          content: Text(
+            'Your voice is sent to Groq to turn it into text. Nothing else leaves your phone.',
+            style: appFont(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                settings.setSeenRecordingPrivacyNotice();
+                Navigator.pop(ctx);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.of(settings.theme).gold,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('Understood'),
+            ),
+          ],
         ),
       );
-
-      // Navigate to Stream > Unsorted
-      if (mounted) {
-        context.read<NavigationNotifier>().goToStream(subTab: 'unsorted');
-      }
     }
+
+    // 5. One-time "Keep recording reliably" tip (UPDATE 4 - Section B)
+    if (!kIsWeb &&
+        Platform.isAndroid &&
+        !settings.hasSeenBatteryOptimizationTip &&
+        mounted) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.of(settings.theme).card,
+          title: Text(
+            'Keep recording reliably',
+            style: appFont(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: Text(
+            'Some phone brands kill background apps when the screen is off. You can disable battery optimisation for ThoughtHolder so recordings are never cut short.',
+            style: appFont(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                settings.setSeenBatteryOptimizationTip();
+                Navigator.pop(ctx);
+              },
+              child: const Text('Not now'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                settings.setSeenBatteryOptimizationTip();
+                Navigator.pop(ctx);
+                const MethodChannel('com.thoughtholder.app/background_recording')
+                    .invokeMethod('openBatteryOptimizationSettings');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.of(settings.theme).gold,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('Open settings'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 6. Start background recording
+    await bgRecorder.startRecording(settings);
+  }
+
+  Future<bool> _showPermissionExplanationDialog(BuildContext context) async {
+    final colors = AppColors.of(context.read<SettingsService>().theme);
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.card,
+        title: Text(
+          'Microphone permission',
+          style: appFont(color: colors.text, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'So it can keep recording when your screen is off.',
+          style: appFont(color: colors.mute, fontSize: 15, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: appFont(color: colors.mute)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.gold,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return res ?? false;
+  }
+
+  // --- Stop Recording Flow (UPDATE 4 - Section A) ---
+  Future<void> _onStopPressed() async {
+    final bgRecorder = context.read<BackgroundRecordingService>();
+    final settings = context.read<SettingsService>();
+    final provider = context.read<ThoughtProvider>();
+    final nav = context.read<NavigationNotifier>();
+
+    final audioPath = await bgRecorder.stopRecording();
+    if (audioPath == null) return;
+
+    // Navigate to Stream > Unsorted immediately
+    nav.goToStream(subTab: 'unsorted');
+
+    // Process and transcribe with feedback and try again
+    await bgRecorder.processAndSaveThought(
+      audioPath: audioPath,
+      thoughtProvider: provider,
+      settings: settings,
+      onFeedback: (message, {onUndo, onTryAgain}) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              message,
+              style: appFont(
+                color: Colors.amber,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            backgroundColor: const Color(0xFF141416),
+            duration: const Duration(seconds: 6),
+            action: onUndo != null
+                ? SnackBarAction(
+                    label: 'UNDO',
+                    textColor: Colors.amber,
+                    onPressed: onUndo,
+                  )
+                : (onTryAgain != null
+                    ? SnackBarAction(
+                        label: 'TRY AGAIN',
+                        textColor: Colors.amber,
+                        onPressed: onTryAgain,
+                      )
+                    : null),
+          ),
+        );
+      },
+    );
   }
 
   void _submitText() async {
     final text = _textController.text.trim();
     if (text.isNotEmpty) {
-      context
-          .read<ThoughtProvider>()
-          .addThought(text, 'thought', tags: 'text-entry');
-      context.read<GamificationProvider>().captureText();
-      if (!kIsWeb && Platform.isAndroid) {
-        await HomeWidget.saveWidgetData<String>('last_thought', text);
-        await HomeWidget.updateWidget(
-          qualifiedAndroidName:
-              'com.example.thought_holder_flutter.ThoughtWidgetProvider',
-        );
-      }
+      FocusScope.of(context).unfocus();
+      final provider = context.read<ThoughtProvider>();
+      final nav = context.read<NavigationNotifier>();
+      final messenger = ScaffoldMessenger.of(context);
+      final createdThought = await provider.addThought(
+        text,
+        'thought',
+        tags: 'text-entry',
+      );
       _textController.clear();
       _prefsBox?.delete('draft_thought_text');
-      FocusScope.of(context).unfocus();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✓ Saved to Unsorted',
-              style:
-                  TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-          backgroundColor: Color(0xFF141416),
-          duration: Duration(seconds: 2),
-        ),
-      );
-
-      // Navigate to Stream > Unsorted
       if (mounted) {
-        context.read<NavigationNotifier>().goToStream(subTab: 'unsorted');
+        nav.goToStream(subTab: 'unsorted');
+
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved to Unsorted',
+              style: appFont(color: Colors.amber, fontWeight: FontWeight.bold),
+            ),
+            backgroundColor: const Color(0xFF141416),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Undo',
+              textColor: Colors.amber,
+              onPressed: () {
+                provider.moveToTrash(createdThought['id'] as String);
+                _textController.text = text;
+              },
+            ),
+          ),
+        );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<SettingsService>();
+    final bgRecorder = context.watch<BackgroundRecordingService>();
+    final colors = AppColors.of(settings.theme);
+
+    // ========================================================================
+    // WHILE RECORDING: ONE BIG THING (UPDATE 4 - Section A & I)
+    // The screen shows a large timer (mm:ss), the label "Recording",
+    // and ONE big "Stop" button. Nothing else competes with it!
+    // ========================================================================
+    if (bgRecorder.isRecording) {
+      return _buildActiveRecordingScreen(bgRecorder, colors);
+    }
+
+    // ========================================================================
+    // IDLE STATE (UPDATE 5 - Section A)
+    // "Ready", big Record button, Text option.
+    // ========================================================================
     return SafeArea(
       child: Column(
         children: [
-          const SizedBox(height: 16),
-          // Mode Toggle (Accessible: never color alone, distinct filled background)
+          const SizedBox(height: 12),
+
+          // Unfinished Recording Recovery Card (UPDATE 4 - F, UPDATE 5 - A)
+          if (bgRecorder.hasUnfinishedRecording) ...[
+            _buildUnfinishedRecordingCard(bgRecorder, colors),
+            const SizedBox(height: 12),
+          ],
+
+          // Mode Toggle: Voice / Text
           Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF161618),
+              color: colors.card,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: colors.line),
             ),
             padding: const EdgeInsets.all(4),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 GestureDetector(
-                  onTap: () {
-                    if (_isListening) _stopListening();
-                    setState(() => _captureMode = 'voice');
-                  },
+                  onTap: () => setState(() => _captureMode = 'voice'),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 9),
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                     decoration: BoxDecoration(
                       color: _captureMode == 'voice'
-                          ? const Color(0xFF282308)
+                          ? colors.goldBg
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: _captureMode == 'voice'
-                            ? const Color(0xFFFFBF00)
+                            ? colors.gold
                             : Colors.transparent,
-                        width: 1.2,
+                        width: 1.5,
                       ),
                     ),
                     child: Row(
@@ -314,20 +377,20 @@ class _CaptureScreenState extends State<CaptureScreen>
                       children: [
                         Icon(
                           Icons.mic_outlined,
-                          size: 16,
+                          size: 18,
                           color: _captureMode == 'voice'
-                              ? const Color(0xFFFFBF00)
-                              : Colors.white54,
+                              ? colors.gold
+                              : colors.mute,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Text(
-                          'VOICE',
-                          style: TextStyle(
+                          'Voice',
+                          style: appFont(
                             color: _captureMode == 'voice'
-                                ? const Color(0xFFFFBF00)
-                                : Colors.white54,
+                                ? colors.gold
+                                : colors.mute,
                             fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                            fontSize: 14,
                           ),
                         ),
                       ],
@@ -335,24 +398,21 @@ class _CaptureScreenState extends State<CaptureScreen>
                   ),
                 ),
                 GestureDetector(
-                  onTap: () {
-                    if (_isListening) _stopListening();
-                    setState(() => _captureMode = 'text');
-                  },
+                  onTap: () => setState(() => _captureMode = 'text'),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 9),
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                     decoration: BoxDecoration(
                       color: _captureMode == 'text'
-                          ? const Color(0xFF282308)
+                          ? colors.goldBg
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: _captureMode == 'text'
-                            ? const Color(0xFFFFBF00)
+                            ? colors.gold
                             : Colors.transparent,
-                        width: 1.2,
+                        width: 1.5,
                       ),
                     ),
                     child: Row(
@@ -362,18 +422,18 @@ class _CaptureScreenState extends State<CaptureScreen>
                           Icons.edit_note,
                           size: 18,
                           color: _captureMode == 'text'
-                              ? const Color(0xFFFFBF00)
-                              : Colors.white54,
+                              ? colors.gold
+                              : colors.mute,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Text(
-                          'TEXT',
-                          style: TextStyle(
+                          'Text',
+                          style: appFont(
                             color: _captureMode == 'text'
-                                ? const Color(0xFFFFBF00)
-                                : Colors.white54,
+                                ? colors.gold
+                                : colors.mute,
                             fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                            fontSize: 14,
                           ),
                         ),
                       ],
@@ -386,262 +446,306 @@ class _CaptureScreenState extends State<CaptureScreen>
 
           Expanded(
             child: _captureMode == 'voice'
-                ? Center(child: _buildVoiceMode())
-                : _buildTextMode(),
+                ? _buildVoiceIdleMode(colors, settings)
+                : _buildTextMode(colors),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildVoiceMode() {
-    final isWhisper = _activeEngine == TranscriptionEngine.whisper;
+  // --- Active Recording View: Large Timer, Label, ONE Big Stop Button ---
+  Widget _buildActiveRecordingScreen(
+    BackgroundRecordingService bgRecorder,
+    AppColors colors,
+  ) {
+    final isPaused = bgRecorder.isPaused;
+    final pauseReason = bgRecorder.pauseReason ?? 'your phone call';
 
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Engine Status Badge
-          if (_isListening || _isTranscribing)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              decoration: BoxDecoration(
-                color: isWhisper
-                    ? const Color(0xFFFFBF00).withOpacity(0.15)
-                    : Colors.white10,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isWhisper
-                      ? const Color(0xFFFFBF00).withOpacity(0.4)
-                      : Colors.white24,
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Large Timer (mm:ss)
+              Text(
+                bgRecorder.formattedDuration,
+                style: appFont(
+                  color: colors.gold,
+                  fontSize: 64,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2.0,
                 ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 12),
+
+              // Status Label
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    isWhisper ? Icons.auto_awesome : Icons.mic_none,
-                    size: 14,
-                    color: isWhisper ? const Color(0xFFFFBF00) : Colors.white70,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    isWhisper ? 'WHISPER AI (TURBO)' : 'OFFLINE FALLBACK',
-                    style: TextStyle(
-                      color:
-                          isWhisper ? const Color(0xFFFFBF00) : Colors.white70,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          Text(
-            _isTranscribing
-                ? 'TRANSCRIBING WITH WHISPER AI...'
-                : (_isListening
-                    ? (isWhisper
-                        ? 'HOLDING THOUGHT (WHISPER AI)...'
-                        : 'LISTENING (DEVICE)...')
-                    : 'TAP TO HOLD A THOUGHT'),
-            style: TextStyle(
-              color: _isTranscribing
-                  ? const Color(0xFFFFBF00)
-                  : (_isListening
-                      ? Theme.of(context).colorScheme.error
-                      : Colors.white54),
-              letterSpacing: 2.0,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-            ),
-          ),
-
-          // Live Audio Equalizer / Sound Level Bars
-          if (_isListening) ...[
-            const SizedBox(height: 12),
-            _buildAudioVisualizer(),
-          ],
-
-          const SizedBox(height: 20),
-
-          // Transcribing indicator
-          if (_isTranscribing)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40.0, vertical: 10),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Color(0xFFFFBF00),
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'Transcribing audio via Groq Whisper Turbo...',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-
-          // Live Text display (Device fallback) or Prompt preview (Whisper)
-          if (_isListening)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 36.0),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 180),
-                child: SingleChildScrollView(
-                  child: Text(
-                    isWhisper
-                        ? 'Speak continuously without cut-off.\nTap button again when finished to transcribe.'
-                        : (_committedText.isEmpty
-                            ? 'Listening... speak now.'
-                            : _committedText),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: isWhisper ? Colors.white70 : Colors.white,
-                      fontSize: 16,
-                      fontStyle:
-                          isWhisper ? FontStyle.italic : FontStyle.normal,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 36),
-
-          // Mic Capture Button
-          GestureDetector(
-            onTap: _isTranscribing
-                ? null
-                : (_isListening ? _stopListening : _startListening),
-            child: AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) {
-                final double soundScale = _isListening
-                    ? 1.0 + (math.min(1.0, _soundLevel) * 0.18)
-                    : 1.0;
-                final scale = _isListening
-                    ? (_pulseAnimation.value * soundScale)
-                    : 1.0;
-
-                return Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 150,
-                    height: 150,
+                  Container(
+                    width: 12,
+                    height: 12,
                     decoration: BoxDecoration(
-                      borderRadius: _isListening
-                          ? BorderRadius.circular(24)
-                          : BorderRadius.circular(75),
-                      color: Theme.of(context).colorScheme.surface,
+                      color: isPaused ? colors.gold : colors.bad,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isPaused ? 'Paused: $pauseReason' : 'Recording',
+                    style: appFont(
+                      color: isPaused ? colors.gold : colors.bad,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 50),
+
+              // ONE Big "Stop" Button (>= 48px, nothing competes with it)
+              SizedBox(
+                width: double.infinity,
+                height: 64,
+                child: ElevatedButton.icon(
+                  onPressed: _onStopPressed,
+                  icon: const Icon(Icons.stop_rounded, size: 28),
+                  label: Text(
+                    'Stop',
+                    style: appFont(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.bad,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Unfinished Recording Recovery Card (Section F) ---
+  Widget _buildUnfinishedRecordingCard(
+    BackgroundRecordingService bgRecorder,
+    AppColors colors,
+  ) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.gold, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: colors.gold, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'We found a recording that didn’t finish. Save it?',
+                  style: appFont(
+                    color: colors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final path = bgRecorder.unfinishedRecordingPath;
+                      if (path != null) {
+                        final provider = context.read<ThoughtProvider>();
+                        final settings = context.read<SettingsService>();
+                        final nav = context.read<NavigationNotifier>();
+                        await bgRecorder.discardUnfinishedRecording();
+                        nav.goToStream(subTab: 'unsorted');
+                        await bgRecorder.processAndSaveThought(
+                          audioPath: path,
+                          thoughtProvider: provider,
+                          settings: settings,
+                          onFeedback: (msg, {onUndo, onTryAgain}) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(msg)),
+                            );
+                          },
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.gold,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Save it',
+                      style: appFont(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: () => bgRecorder.discardUnfinishedRecording(),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: colors.line),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Delete it',
+                      style: appFont(
+                        color: colors.bad,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Voice Idle Mode (UPDATE 5 - Section A) ---
+  Widget _buildVoiceIdleMode(AppColors colors, SettingsService settings) {
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'READY',
+              style: appFont(
+                color: colors.mute,
+                letterSpacing: 2.5,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 36),
+
+            // Big Record Button (>= 48px target, 140px diameter)
+            GestureDetector(
+              onTap: _onRecordPressed,
+              child: AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) {
+                  return Container(
+                    width: 140,
+                    height: 140,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: colors.card,
                       border: Border.all(
-                        color: _isListening
-                            ? Theme.of(context)
-                                .colorScheme
-                                .error
-                                .withOpacity(0.6)
-                            : Colors.white10,
-                        width: 2,
+                        color: colors.gold,
+                        width: 2.5,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _isListening
-                              ? Colors.redAccent.withOpacity(0.35)
-                              : Colors.black54,
-                          blurRadius: _isListening ? 26 : 20,
-                          spreadRadius: _isListening ? 8 : 5,
+                          color: colors.gold.withValues(alpha: 0.15),
+                          blurRadius: 20,
+                          spreadRadius: 5,
                         ),
                       ],
                     ),
                     child: Center(
-                      child: _isTranscribing
-                          ? const CircularProgressIndicator(
-                              color: Color(0xFFFFBF00),
-                            )
-                          : (_isListening
-                              ? Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color:
-                                        Theme.of(context).colorScheme.error,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.mic,
-                                  size: 60,
-                                  color: Theme.of(context).primaryColor,
-                                )),
+                      child: Icon(
+                        Icons.mic,
+                        size: 58,
+                        color: colors.gold,
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 24),
-          if (!kIsWeb && Platform.isWindows)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Text(
-                _isListening
-                    ? 'Press mic button again when done'
-                    : 'Global Hotkey: Ctrl+Shift+B pops up & captures',
-                style: const TextStyle(
-                  color: Colors.white30,
-                  fontSize: 11,
-                  letterSpacing: 1.1,
-                ),
-                textAlign: TextAlign.center,
+                  );
+                },
               ),
             ),
-        ],
+            const SizedBox(height: 24),
+
+            Text(
+              'Tap to record',
+              style: appFont(
+                color: colors.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            Text(
+              'Recording continues when screen turns off',
+              style: appFont(
+                color: colors.mute,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 30),
+
+            // Option to switch to Text
+            TextButton.icon(
+              onPressed: () => setState(() => _captureMode = 'text'),
+              icon: Icon(Icons.edit_note, color: colors.gold, size: 20),
+              label: Text(
+                'Or type a thought instead',
+                style: appFont(
+                  color: colors.gold,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  /// Live visual audio level bars reacting to microphone input
-  Widget _buildAudioVisualizer() {
-    final double normalized = math.min(1.0, math.max(0.08, _soundLevel));
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(5, (index) {
-        final factor = [0.6, 0.9, 1.0, 0.8, 0.5][index];
-        final barHeight = 8.0 + (normalized * 28.0 * factor);
-
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 70),
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          width: 4,
-          height: barHeight,
-          decoration: BoxDecoration(
-            color: normalized > 0.15
-                ? const Color(0xFFFFBF00)
-                : Colors.white24,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _buildTextMode() {
+  // --- Text Input Mode ---
+  Widget _buildTextMode(AppColors colors) {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Text Input with Ctrl+Enter keyboard support on desktop
           CallbackShortcuts(
             bindings: {
               const SingleActivator(LogicalKeyboardKey.enter, control: true):
@@ -653,24 +757,23 @@ class _CaptureScreenState extends State<CaptureScreen>
               controller: _textController,
               maxLines: 7,
               minLines: 4,
-              style: const TextStyle(
-                color: Colors.white,
+              style: appFont(
+                color: colors.text,
                 fontSize: 18,
                 height: 1.4,
               ),
               decoration: InputDecoration(
                 hintText: 'Type your thought here...',
-                hintStyle: const TextStyle(color: Colors.white60, fontSize: 18),
+                hintStyle: appFont(color: colors.mute, fontSize: 18),
                 filled: true,
-                fillColor: const Color(0xFF1B1B1E),
+                fillColor: colors.card,
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Colors.white24, width: 1.2),
+                  borderSide: BorderSide(color: colors.line, width: 1.2),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFFFBF00), width: 2.0),
+                  borderSide: BorderSide(color: colors.gold, width: 2.0),
                 ),
                 contentPadding: const EdgeInsets.all(20),
               ),
@@ -678,11 +781,10 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
           const SizedBox(height: 16),
 
-          // Filled Gold Save Button (Full Width for mobile & desktop)
           ElevatedButton(
             onPressed: _submitText,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFBF00),
+              backgroundColor: colors.gold,
               foregroundColor: Colors.black,
               minimumSize: const Size(double.infinity, 52),
               shape: RoundedRectangleBorder(
@@ -690,9 +792,9 @@ class _CaptureScreenState extends State<CaptureScreen>
               ),
               elevation: 2,
             ),
-            child: const Text(
-              'Save to Unsorted',
-              style: TextStyle(
+            child: Text(
+              'Save thought',
+              style: appFont(
                 color: Colors.black,
                 fontWeight: FontWeight.bold,
                 fontSize: 17,
@@ -700,14 +802,13 @@ class _CaptureScreenState extends State<CaptureScreen>
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
-          // "Say where it goes" label + desktop shortcut hint
-          const Text(
+          Text(
             'Saves to Unsorted · Press Ctrl+Enter to save',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white54,
+            style: appFont(
+              color: colors.mute,
               fontSize: 13,
               fontWeight: FontWeight.w400,
             ),

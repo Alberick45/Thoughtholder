@@ -56,6 +56,13 @@ dependencies:
   window_manager: ^0.5.2
   launch_at_startup: ^0.5.1
   record: ^6.2.1
+  google_fonts: ^8.2.1
+  local_notifier: ^0.1.6
+  crypto: ^3.0.3
+  cryptography: ^2.9.0
+  flutter_secure_storage: ^10.3.4
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.3
 
 dev_dependencies:
   flutter_test:

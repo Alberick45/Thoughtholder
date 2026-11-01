@@ -63,3 +63,7 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# ThoughtHolder native classes
+-keep class com.example.thought_holder_flutter.** { *; }
+

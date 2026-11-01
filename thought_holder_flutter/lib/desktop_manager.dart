@@ -7,7 +7,6 @@ import 'package:window_manager/window_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
-import 'record_trigger.dart';
 import 'settings_service.dart';
 
 /// Manages desktop-specific integrations:
@@ -135,7 +134,7 @@ class DesktopManager with WindowListener, TrayListener {
         items: [
           MenuItem(
             key: 'quick_record',
-            label: '⚡ Quick Record (Ctrl+Shift+B)',
+            label: 'Open Capture (Ctrl+Shift+B)',
           ),
           MenuItem.separator(),
           MenuItem(
@@ -186,8 +185,7 @@ class DesktopManager with WindowListener, TrayListener {
     }
   }
 
-  /// Pops up the window, brings it to front (always-on-top widget mode),
-  /// and automatically triggers voice capture.
+  /// Pops up the window and brings it to front in Capture idle state.
   Future<void> popupAndRecord() async {
     if (!isDesktop) return;
     try {
@@ -201,10 +199,7 @@ class DesktopManager with WindowListener, TrayListener {
       }
 
       await windowManager.focus();
-      await windowManager.setAlwaysOnTop(true);
-
-      // Trigger recording in CaptureScreen
-      recordRequested.value = true;
+      // UPDATE 5 Section A: Opens Capture in idle state, never auto-records.
     } catch (e) {
       debugPrint('[DesktopManager] popupAndRecord error: $e');
     }

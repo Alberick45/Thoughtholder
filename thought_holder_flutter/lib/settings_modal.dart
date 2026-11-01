@@ -7,6 +7,13 @@ import 'ble_sync_screen.dart';
 import 'settings_service.dart';
 import 'desktop_manager.dart';
 import 'voice_transcription_service.dart';
+import 'app_theme.dart';
+import 'connect_groq_modal.dart';
+import 'notifications_settings_screen.dart';
+import 'starter_buckets_screen.dart';
+import 'paired_devices_screen.dart';
+import 'duplicate_finder_screen.dart';
+import 'history_screen.dart';
 
 class SettingsModal extends StatefulWidget {
   const SettingsModal({Key? key}) : super(key: key);
@@ -182,6 +189,8 @@ class _SettingsModalState extends State<SettingsModal> {
   @override
   Widget build(BuildContext context) {
     final settingsService = context.watch<SettingsService>();
+    final thoughtProvider = context.watch<ThoughtProvider>();
+    final colors = AppColors.of(settingsService.theme);
     final isDesktop = DesktopManager.isDesktop;
 
     return Container(
@@ -190,7 +199,7 @@ class _SettingsModalState extends State<SettingsModal> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: colors.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -201,15 +210,16 @@ class _SettingsModalState extends State<SettingsModal> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'SYSTEM SETTINGS',
-                style: TextStyle(
-                  color: Theme.of(context).primaryColor,
+                'SETTINGS',
+                style: appFont(
+                  color: colors.gold,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2.0,
+                  fontSize: 16,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close, color: Colors.white54),
+                icon: Icon(Icons.close, color: colors.mute),
                 onPressed: () => Navigator.pop(context),
               )
             ],
@@ -220,15 +230,306 @@ class _SettingsModalState extends State<SettingsModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // --- Appearance & Theme Section ---
+                  Row(
+                    children: [
+                      Icon(Icons.palette_outlined, color: colors.gold, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'APPEARANCE & THEME',
+                        style: appFont(
+                          color: colors.gold,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.line),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Theme Mode',
+                            style: appFont(
+                                color: colors.text,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14)),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _buildThemeOption('Dark', 'dark', Icons.dark_mode_outlined, settingsService, colors),
+                            const SizedBox(width: 8),
+                            _buildThemeOption('Soft light', 'light', Icons.light_mode_outlined, settingsService, colors),
+                            const SizedBox(width: 8),
+                            _buildThemeOption('Calm', 'calm', Icons.nightlight_outlined, settingsService, colors),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // --- Bucket Ordering Section ---
+                  Row(
+                    children: [
+                      Icon(Icons.sort_outlined, color: colors.gold, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'BUCKET ORDERING',
+                        style: appFont(
+                          color: colors.gold,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.line),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Sorted Tab Bucket Order',
+                            style: appFont(
+                                color: colors.text,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14)),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _buildOrderOption('Most ideas first', 'ideas', settingsService, colors),
+                            const SizedBox(width: 8),
+                            _buildOrderOption('Creation order', 'creation', settingsService, colors),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // --- Unsorted Order Section (UPDATE 6 - Section A) ---
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.line),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Unsorted order',
+                            style: appFont(
+                                color: colors.text,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14)),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Choose whether newest or oldest ideas appear first in Unsorted.',
+                          style: appFont(color: colors.mute, fontSize: 12),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _buildUnsortedOrderOption('Newest first (default)', 'newest', settingsService, colors),
+                            const SizedBox(width: 8),
+                            _buildUnsortedOrderOption('Oldest first', 'oldest', settingsService, colors),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // --- Starter Buckets Section (UPDATE 6 - Section C) ---
+                  Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, color: colors.gold, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'STARTER BUCKETS',
+                        style: appFont(
+                          color: colors.gold,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.line),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Starter buckets',
+                          style: appFont(
+                            color: colors.text,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Add any of the standard starter buckets anytime.',
+                          style: appFont(color: colors.mute, fontSize: 12),
+                        ),
+                        const SizedBox(height: 12),
+                        ...kStarterBuckets.map((starter) {
+                          final name = starter.name;
+                          final iconKey = starter.iconKey;
+                          final desc = starter.description;
+                          final iconData = kBucketIcons[iconKey] ?? Icons.folder_outlined;
+                          final bool isExisting = thoughtProvider.buckets.any((b) =>
+                              (b['name'] as String).trim().toLowerCase() ==
+                              name.trim().toLowerCase());
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6.0),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: colors.bg,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: colors.line),
+                                  ),
+                                  child: Icon(iconData, color: colors.gold, size: 20),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: appFont(
+                                          color: colors.text,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        desc,
+                                        style: appFont(
+                                          color: colors.mute,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (isExisting)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: colors.bg,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: colors.line),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.check,
+                                            size: 14, color: colors.done),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Added',
+                                          style: appFont(
+                                            color: colors.mute,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton.icon(
+                                      onPressed: () async {
+                                        await thoughtProvider.addBucket(
+                                          name,
+                                          icon: iconKey,
+                                        );
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Added bucket "$name"',
+                                                style: appFont(
+                                                    color: Colors.amber,
+                                                    fontWeight: FontWeight.bold),
+                                              ),
+                                              backgroundColor:
+                                                  const Color(0xFF141416),
+                                              duration:
+                                                  const Duration(seconds: 3),
+                                            ),
+                                          );
+                                          setState(() {});
+                                        }
+                                      },
+                                      icon: const Icon(Icons.add, size: 16),
+                                      label: const Text('Add'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: colors.gold,
+                                        foregroundColor: Colors.black,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
                   // --- Whisper AI (Primary) Section ---
                   Row(
                     children: [
-                      const Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
+                      Icon(Icons.auto_awesome, color: colors.gold, size: 18),
                       const SizedBox(width: 8),
                       Text(
-                        'WHISPER AI TRANSCRIBER (PRIMARY)',
-                        style: TextStyle(
-                          color: Theme.of(context).primaryColor,
+                        'WHISPER AI TRANSCRIBER',
+                        style: appFont(
+                          color: colors.gold,
                           fontSize: 12,
                           letterSpacing: 1.5,
                           fontWeight: FontWeight.bold,
@@ -240,23 +541,76 @@ class _SettingsModalState extends State<SettingsModal> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.black26,
+                      color: colors.card,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                      border: Border.all(color: colors.line),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Quick Launch Wizard Button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (_) => const ConnectGroqModal(),
+                              );
+                            },
+                            icon: const Icon(Icons.key, size: 16),
+                            label: const Text('Open 4-step Groq Setup Wizard'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: colors.gold,
+                              foregroundColor: Colors.black,
+                              textStyle: appFont(
+                                  fontWeight: FontWeight.bold, fontSize: 13),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Divider(color: Colors.white10, height: 1),
+                        const SizedBox(height: 14),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('Use Whisper AI as Primary',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          subtitle: const Text(
+                          title: Text('History view as grid',
+                              style: appFont(
+                                  color: colors.text,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)),
+                          subtitle: Text(
+                            'Toggle between grid and list view for History screen',
+                            style: appFont(color: colors.mute, fontSize: 11),
+                          ),
+                          value: settingsService.historyGridView,
+                          activeColor: colors.gold,
+                          onChanged: (val) async {
+                            await settingsService.setHistoryGridView(val);
+                            setState(() {});
+                          },
+                        ),
+                        // Original Whisper toggle
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('Use Whisper AI as Primary',
+                              style: appFont(
+                                  color: colors.text,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)),
+                          subtitle: Text(
                             'Uses Groq whisper-large-v3-turbo when online, with automatic offline fallback to device',
-                            style: TextStyle(color: Colors.white54, fontSize: 11),
+                            style: appFont(color: colors.mute, fontSize: 11),
                           ),
                           value: settingsService.useWhisperAsPrimary,
-                          activeColor: Colors.amber,
+                          activeColor: colors.gold,
                           onChanged: (val) async {
                             await settingsService.setUseWhisperAsPrimary(val);
                             setState(() {});
@@ -566,13 +920,24 @@ class _SettingsModalState extends State<SettingsModal> {
                   ),
                   const SizedBox(height: 24),
 
-                  // --- BLE Sync Section ---
-                  const Text(
-                    'BLE SYNC (OFFLINE / LOCAL)',
-                    style: TextStyle(color: Colors.white54, fontSize: 12, letterSpacing: 1.5),
+                  // --- BLE Sync Section (UPDATE 7) ---
+                  Row(
+                    children: [
+                      Icon(Icons.sync_outlined, color: colors.gold, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'BLE SYNC (OFFLINE / LOCAL)',
+                        style: appFont(
+                          color: colors.gold,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
-                  GestureDetector(
+                  InkWell(
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(
@@ -580,33 +945,261 @@ class _SettingsModalState extends State<SettingsModal> {
                         MaterialPageRoute(builder: (_) => const BleSyncScreen()),
                       );
                     },
+                    borderRadius: BorderRadius.circular(12),
                     child: Container(
+                      constraints: const BoxConstraints(minHeight: 56),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.black26,
+                        color: colors.card,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                        border: Border.all(color: colors.gold.withOpacity(0.4)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.bluetooth, color: Colors.tealAccent),
+                          Icon(Icons.bluetooth_connected, color: colors.gold, size: 22),
                           const SizedBox(width: 16),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'BLE Sync',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  'Sync with nearby device',
+                                  style: appFont(
+                                    color: colors.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                 ),
+                                const SizedBox(height: 4),
                                 Text(
-                                  'Sync thoughts offline with nearby devices',
-                                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                                  'Merge ideas and buckets offline over Bluetooth',
+                                  style: appFont(
+                                    color: colors.mute,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: Colors.white30),
+                          Icon(Icons.chevron_right, color: colors.mute),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const PairedDevicesScreen()),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 56),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.line),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.devices_outlined, color: colors.gold, size: 22),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Paired devices',
+                                  style: appFont(
+                                    color: colors.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Trusted devices and 6-digit confirmation codes',
+                                  style: appFont(
+                                    color: colors.mute,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: colors.mute),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const DuplicateFinderScreen()),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 56),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.line),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.copy_all_outlined, color: colors.gold, size: 22),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Find duplicates',
+                                  style: appFont(
+                                    color: colors.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Review and merge ideas with identical text',
+                                  style: appFont(
+                                    color: colors.mute,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: colors.mute),
+                        ],
+                      ),
+                    ),
+                  ),
+                  InkWell(
+  onTap: () {
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const HistoryScreen()),
+    );
+  },
+  borderRadius: BorderRadius.circular(12),
+  child: Container(
+    constraints: const BoxConstraints(minHeight: 56),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: colors.card,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: colors.line),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.history, color: colors.gold, size: 22),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'History',
+                style: appFont(
+                  color: colors.text,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Review completed ideas',
+                style: appFont(
+                  color: colors.mute,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(Icons.chevron_right, color: colors.mute),
+      ],
+    ),
+  ),
+),
+const SizedBox(height: 24),
+
+                  // --- Notifications & Nudges Section (UPDATE 5) ---
+                  Row(
+                    children: [
+                      Icon(Icons.notifications_outlined, color: colors.gold, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'NOTIFICATIONS & NUDGES',
+                        style: appFont(
+                          color: colors.gold,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const NotificationsSettingsScreen()),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.gold.withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.notifications_active_outlined,
+                              color: colors.gold, size: 22),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Notifications & reminders',
+                                  style: appFont(
+                                    color: colors.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Start here nudges, capture reminders & quiet hours',
+                                  style: appFont(
+                                    color: colors.mute,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: colors.mute),
                         ],
                       ),
                     ),
@@ -620,4 +1213,118 @@ class _SettingsModalState extends State<SettingsModal> {
       ),
     );
   }
+
+  Widget _buildThemeOption(
+    String label,
+    String key,
+    IconData icon,
+    SettingsService settings,
+    AppColors colors,
+  ) {
+    final isSelected = settings.theme == key;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => settings.setTheme(key),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? colors.goldBg : colors.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? colors.gold : colors.line,
+              width: isSelected ? 1.8 : 1.0,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 20, color: isSelected ? colors.gold : colors.mute),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: appFont(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? colors.gold : colors.mute,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderOption(
+    String label,
+    String key,
+    SettingsService settings,
+    AppColors colors,
+  ) {
+    final isSelected = settings.bucketOrder == key;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => settings.setBucketOrder(key),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? colors.goldBg : colors.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? colors.gold : colors.line,
+              width: isSelected ? 1.8 : 1.0,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: appFont(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? colors.gold : colors.mute,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnsortedOrderOption(
+    String label,
+    String key,
+    SettingsService settings,
+    AppColors colors,
+  ) {
+    final isSelected = settings.unsortedOrder == key;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => settings.setUnsortedOrder(key),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? colors.goldBg : colors.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? colors.gold : colors.line,
+              width: isSelected ? 1.8 : 1.0,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: appFont(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? colors.gold : colors.mute,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
+
