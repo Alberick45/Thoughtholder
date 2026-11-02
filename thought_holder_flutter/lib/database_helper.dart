@@ -137,6 +137,12 @@ CREATE TABLE bucket_aliases (
   created_at INTEGER NOT NULL
 )
 ''');
+
+    // Indexes for fast querying
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_bucket ON thoughts(bucket)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_status_done ON thoughts(status, done)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_created_at ON thoughts(created_at)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_trashed ON thoughts(trashed)');
   }
 
   Future<void> _onOpenDB(Database db) async {
@@ -293,6 +299,12 @@ CREATE TABLE IF NOT EXISTS bucket_aliases (
         await db.update('thoughts', updates, where: 'id = ?', whereArgs: [id]);
       }
     }
+
+    // 5. Ensure performance indexes exist
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_bucket ON thoughts(bucket)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_status_done ON thoughts(status, done)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_created_at ON thoughts(created_at)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_trashed ON thoughts(trashed)');
   }
 
   // --- Thought Operations ---
