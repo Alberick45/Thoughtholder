@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:universal_ble/universal_ble.dart';
 import 'package:permission_handler/permission_handler.dart';

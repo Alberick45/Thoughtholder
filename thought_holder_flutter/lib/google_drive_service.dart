@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'database_helper.dart';
+import 'utils/app_logger.dart';
 
 // Extension to get authenticated HTTP client for Google APIs
 class GoogleAuthClient extends http.BaseClient {
@@ -49,7 +50,7 @@ class GoogleDriveService {
         return true;
       }
     } catch (e) {
-      print("Google Sign In Error: $e");
+      AppLogger.error('GoogleDrive', 'Google Sign In Error', e);
       rethrow;
     }
     return false;
@@ -63,7 +64,7 @@ class GoogleDriveService {
 
   Future<void> syncThoughtsToDrive() async {
     if (_driveApi == null) {
-      print("Drive API not initialized. Please sign in first.");
+      AppLogger.info('GoogleDrive', 'Drive API not initialized. Please sign in first.');
       return;
     }
 
@@ -168,9 +169,9 @@ class GoogleDriveService {
         }
       }
 
-      print("Sync complete!");
+      AppLogger.info('GoogleDrive', 'Sync complete');
     } catch (e) {
-      print("Sync Error: $e");
+      AppLogger.error('GoogleDrive', 'Sync Error', e);
     }
   }
 }

@@ -10,6 +10,7 @@ import 'settings_service.dart';
 import 'sync_identity.dart';
 import 'ble_crypto.dart';
 import 'ble_merge_engine.dart';
+import 'utils/app_logger.dart';
 
 /// Progress info emitted during two-way sync
 class SyncProgressUpdate {
@@ -254,7 +255,7 @@ class BleSyncService {
 
       _syncCompleteController.add(merged);
     } catch (e) {
-      print('[BLE SYNC] Error merging received blob: $e');
+      AppLogger.error('BLE SYNC', 'Error merging received blob', e);
     }
   }
 
