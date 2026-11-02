@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:cryptography/cryptography.dart' as c;
 import 'package:thought_holder_flutter/ble_crypto.dart';
 import 'package:thought_holder_flutter/pairing_service.dart';
 
@@ -38,7 +37,6 @@ void main() {
       final phoneKeyPair = await BleCrypto.generateX25519KeyPair();
       final phonePub = await BleCrypto.exportPublicKey(phoneKeyPair);
       const phoneId = 'phone-uuid-002';
-      const phoneName = "Paapa's Phone";
 
       // 4. Phone computes shared secret, HKDF keys, and 6-digit SAS code
       final phoneSecret = await BleCrypto.computeSharedSecret(
@@ -100,7 +98,6 @@ void main() {
       final phoneKeyPair = await BleCrypto.generateX25519KeyPair();
       final phonePub = await BleCrypto.exportPublicKey(phoneKeyPair);
       const phoneId = 'phone-456';
-      const phoneName = "Paapa's Phone";
       final sessionToken = BleCrypto.generateSessionToken();
 
       // Laptop (Windows) never calls mobile_scanner and uses Compare numbers
@@ -197,7 +194,6 @@ void main() {
     });
 
     test('Scenario 6: HMAC proof tamper resistance', () async {
-      final kp = await BleCrypto.generateX25519KeyPair();
       final token = BleCrypto.generateSessionToken();
       final authKey = utf8.encode('test-auth-key-32-bytes-long1234');
 

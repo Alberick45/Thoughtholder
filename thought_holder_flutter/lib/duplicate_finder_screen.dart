@@ -69,7 +69,7 @@ class _DuplicateFinderScreenState extends State<DuplicateFinderScreen> {
                       )
                     : ListView.separated(
                         itemCount: duplicateGroups.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 16),
+                        separatorBuilder: (_, _) => const SizedBox(height: 16),
                         itemBuilder: (ctx, index) {
                           final group = duplicateGroups[index];
                           final sample = group.first;

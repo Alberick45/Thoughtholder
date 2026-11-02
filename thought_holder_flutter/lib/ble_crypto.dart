@@ -55,7 +55,7 @@ class BleCrypto {
   }
 
   /// Derives pairing keys from X25519 shared secret:
-  /// - 'authKey': 32 bytes List<int> (for SAS code and HMAC proof)
+  /// - 'authKey': 32 bytes `List<int>` (for SAS code and HMAC proof)
   /// - 'syncKey': 32 bytes base64Url String (for session encryption)
   static Map<String, dynamic> derivePairingKeys({
     required List<int> sharedSecret,

@@ -1,11 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:cryptography/cryptography.dart' as c;
-import 'package:universal_ble/universal_ble.dart';
 import 'ble_crypto.dart';
-import 'ble_ids.dart';
 import 'settings_service.dart';
 import 'sync_identity.dart';
 

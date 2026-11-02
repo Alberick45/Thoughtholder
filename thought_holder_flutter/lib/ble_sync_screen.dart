@@ -34,14 +34,12 @@ class _BleSyncScreenState extends State<BleSyncScreen>
   // Legacy Send state (under Advanced)
   List<BleDevice> _devices = [];
   BleDevice? _sendingTo;
-  TransferProgress? _sendProgress;
   StreamSubscription? _devSub;
   StreamSubscription? _sendProgressSub;
   bool _isScanning = false;
 
   // Legacy Receive state (under Advanced)
   bool _isReceiving = false;
-  TransferProgress? _receiveProgress;
   StreamSubscription? _receiveProgressSub;
   StreamSubscription? _syncCompleteSub;
   StreamSubscription? _mergeProgressSub;
@@ -62,14 +60,11 @@ class _BleSyncScreenState extends State<BleSyncScreen>
     });
 
     _sendProgressSub = _bleSync.sendProgress.listen((p) {
-      if (mounted && p is TransferProgress) {
-        setState(() => _sendProgress = p);
-      }
+      // Progress event received
     });
 
     _receiveProgressSub = _bleSync.receiveProgress.listen((p) {
       if (mounted && p is TransferProgress) {
-        setState(() => _receiveProgress = p);
         if (p.status == TransferStatus.failed) {
           _showSnack('Sync failed: ${p.error ?? 'Unknown error'}');
         }
@@ -125,6 +120,7 @@ class _BleSyncScreenState extends State<BleSyncScreen>
     );
   }
 
+  // ignore: unused_element
   Future<void> _startTwoWaySync() async {
     final settings = context.read<SettingsService>();
     final pairedMap = settings.getPairedDevices();
@@ -241,7 +237,6 @@ class _BleSyncScreenState extends State<BleSyncScreen>
       await _bleSync.stopReceiving();
       setState(() {
         _isReceiving = false;
-        _receiveProgress = null;
       });
     } else {
       try {
@@ -256,14 +251,14 @@ class _BleSyncScreenState extends State<BleSyncScreen>
   Future<void> _syncTo(BleDevice device) async {
     if (_sendingTo != null) return;
     await _bleSync.stopScan();
-    setState(() { _isScanning = false; _sendingTo = device; _sendProgress = null; });
+    setState(() { _isScanning = false; _sendingTo = device; });
     try {
       await _bleSync.syncTo(device);
       _showSnack('Ideas copied to ${device.name ?? device.deviceId}!');
     } catch (e) {
       _showSnack('Sync failed: $e');
     } finally {
-      if (mounted) setState(() { _sendingTo = null; _sendProgress = null; });
+      if (mounted) setState(() { _sendingTo = null; });
     }
   }
 

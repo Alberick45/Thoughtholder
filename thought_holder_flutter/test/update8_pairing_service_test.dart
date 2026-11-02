@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:cryptography/cryptography.dart' as c;
 import 'package:thought_holder_flutter/ble_crypto.dart';
 import 'package:thought_holder_flutter/pairing_service.dart';
 
@@ -13,14 +12,12 @@ void main() {
       final aliceKeyPair = await BleCrypto.generateX25519KeyPair();
       final alicePub = await BleCrypto.exportPublicKey(aliceKeyPair);
       const aliceId = 'laptop-uuid-1111';
-      const aliceName = "Paapa's Laptop";
       final sessionToken = BleCrypto.generateSessionToken();
 
       // Bob (e.g., Phone / scanner)
       final bobKeyPair = await BleCrypto.generateX25519KeyPair();
       final bobPub = await BleCrypto.exportPublicKey(bobKeyPair);
       const bobId = 'phone-uuid-2222';
-      const bobName = "Paapa's Phone";
 
       // Bob computes shared secret and keys from Alice's public key & token
       final bobSecret = await BleCrypto.computeSharedSecret(
