@@ -832,7 +832,7 @@ class _StreamScreenState extends State<StreamScreen> {
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: colors.bad.withOpacity(0.5)),
+                      side: BorderSide(color: colors.bad.withValues(alpha: 0.5)),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -2290,7 +2290,7 @@ class _StreamScreenState extends State<StreamScreen> {
                         color: colors.card,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: colors.done.withOpacity(0.35),
+                          color: colors.done.withValues(alpha: 0.35),
                           width: 1.2,
                         ),
                       ),
@@ -2603,7 +2603,7 @@ class _StreamScreenState extends State<StreamScreen> {
                         appFont(color: colors.bad, fontWeight: FontWeight.bold),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: colors.bad.withOpacity(0.5)),
+                    side: BorderSide(color: colors.bad.withValues(alpha: 0.5)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -3949,7 +3949,7 @@ class _StreamScreenState extends State<StreamScreen> {
                               color: colors.card,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                  color: colors.gold.withOpacity(0.6)),
+                                  color: colors.gold.withValues(alpha: 0.6)),
                             ),
                             child: SizedBox(
                               height: 48,
@@ -5169,7 +5169,7 @@ class _Floating3DTrashButtonState extends State<_Floating3DTrashButton> {
                     borderRadius: BorderRadius.circular(18),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.55),
+                        color: Colors.black.withValues(alpha: 0.55),
                         blurRadius: 10,
                         offset: const Offset(0, 5),
                       ),

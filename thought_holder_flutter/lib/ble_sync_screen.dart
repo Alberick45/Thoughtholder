@@ -425,7 +425,7 @@ class _BleSyncScreenState extends State<BleSyncScreen>
                         child: OutlinedButton(
                           onPressed: _undoSync,
                           style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: colors.bad.withOpacity(0.6)),
+                            side: BorderSide(color: colors.bad.withValues(alpha: 0.6)),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),

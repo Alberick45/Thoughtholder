@@ -278,7 +278,7 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
+                      color: Colors.white.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(Icons.travel_explore, color: Colors.blueAccent, size: 20),
@@ -339,7 +339,7 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).primaryColor.withOpacity(0.2),
+                          color: Theme.of(context).primaryColor.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text('${similarity.toStringAsFixed(0)}% Match', style: TextStyle(color: Theme.of(context).primaryColor, fontSize: 10, fontWeight: FontWeight.bold)),
@@ -398,7 +398,7 @@ class NeuralGraphPainter extends CustomPainter {
     final primaryColor = Theme.of(context).primaryColor;
 
     final linePaint = Paint()
-      ..color = primaryColor.withOpacity(0.2)
+      ..color = primaryColor.withValues(alpha: 0.2)
       ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
 
@@ -421,19 +421,19 @@ class NeuralGraphPainter extends CustomPainter {
       final Offset orbitCenter = Offset(x, y);
 
       // Draw connection line
-      linePaint.color = primaryColor.withOpacity(0.1 + (similarity * 0.5));
+      linePaint.color = primaryColor.withValues(alpha: 0.1 + (similarity * 0.5));
       linePaint.strokeWidth = 1.0 + (similarity * 2);
       canvas.drawLine(center, orbitCenter, linePaint);
 
       // Draw orbiting node
-      nodePaint.color = Colors.white.withOpacity(0.3 + (similarity * 0.7));
+      nodePaint.color = Colors.white.withValues(alpha: 0.3 + (similarity * 0.7));
       canvas.drawCircle(orbitCenter, 4 + (similarity * 4), nodePaint);
     }
 
     // Draw center node (pulsing effect simulation)
-    nodePaint.color = primaryColor.withOpacity(0.2);
+    nodePaint.color = primaryColor.withValues(alpha: 0.2);
     canvas.drawCircle(center, 24, nodePaint);
-    nodePaint.color = primaryColor.withOpacity(0.4);
+    nodePaint.color = primaryColor.withValues(alpha: 0.4);
     canvas.drawCircle(center, 16, nodePaint);
     nodePaint.color = primaryColor;
     canvas.drawCircle(center, 8, nodePaint);
