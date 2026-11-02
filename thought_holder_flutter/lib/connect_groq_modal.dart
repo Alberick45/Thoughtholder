@@ -5,7 +5,7 @@ import 'settings_service.dart';
 import 'app_theme.dart';
 
 class ConnectGroqModal extends StatefulWidget {
-  const ConnectGroqModal({Key? key}) : super(key: key);
+  const ConnectGroqModal({super.key});
 
   @override
   State<ConnectGroqModal> createState() => _ConnectGroqModalState();

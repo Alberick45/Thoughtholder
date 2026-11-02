@@ -80,7 +80,7 @@ void main() async {
 }
 
 class ThoughtHolderApp extends StatelessWidget {
-  const ThoughtHolderApp({Key? key}) : super(key: key);
+  const ThoughtHolderApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +120,7 @@ class ThoughtHolderApp extends StatelessWidget {
 }
 
 class MainShell extends StatefulWidget {
-  const MainShell({Key? key}) : super(key: key);
+  const MainShell({super.key});
 
   @override
   State<MainShell> createState() => _MainShellState();

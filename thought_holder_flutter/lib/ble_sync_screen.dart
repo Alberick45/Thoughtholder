@@ -13,7 +13,7 @@ import 'paired_devices_screen.dart';
 import 'ble_merge_engine.dart';
 
 class BleSyncScreen extends StatefulWidget {
-  const BleSyncScreen({Key? key}) : super(key: key);
+  const BleSyncScreen({super.key});
 
   @override
   State<BleSyncScreen> createState() => _BleSyncScreenState();
