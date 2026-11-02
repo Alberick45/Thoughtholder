@@ -52,3 +52,4 @@ backups/
 *.db
 *.db-wal
 *.db-journal
+*.bak
