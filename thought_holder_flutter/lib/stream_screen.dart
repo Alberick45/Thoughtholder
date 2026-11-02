@@ -3040,9 +3040,9 @@ class _StreamScreenState extends State<StreamScreen> {
                 onPressed: () async {
                   final name = nameController.text.trim();
                   if (name.isNotEmpty) {
+                    final settings = context.read<SettingsService>();
                     Navigator.pop(ctx);
                     await provider.addBucket(name, icon: selectedIcon);
-                    final settings = context.read<SettingsService>();
                     SoundService.instance.play(SoundEvent.save, settings: settings);
                     if (fileThoughtId != null) {
                       await provider.fileThought(fileThoughtId, name);
@@ -3184,9 +3184,9 @@ class _StreamScreenState extends State<StreamScreen> {
             onPressed: () async {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != oldName) {
+                final settings = context.read<SettingsService>();
                 Navigator.pop(ctx);
                 await provider.renameBucket(oldName, newName);
-                final settings = context.read<SettingsService>();
                 SoundService.instance.play(SoundEvent.save, settings: settings);
                 _showUndoSnackBar('Renamed bucket to "$newName"', () {});
               }
@@ -3753,6 +3753,7 @@ class _StreamScreenState extends State<StreamScreen> {
                 errorMessage = null;
               });
 
+              final s = context.read<SettingsService>();
               try {
                 // One-step save: create if needed (never creating a duplicate), move idea, save, then close.
                 final canonicalName = await provider.addBucket(targetBucket);
@@ -3762,7 +3763,6 @@ class _StreamScreenState extends State<StreamScreen> {
                 final oldBucket = idea['bucket'] as String?;
                 await provider.fileThought(idea['id'], destination);
 
-                final s = context.read<SettingsService>();
                 final remainingUnsorted = provider.unsortedThoughts.length;
                 if (remainingUnsorted == 0) {
                   SoundService.instance.play(SoundEvent.celebrate, settings: s);
@@ -3789,7 +3789,6 @@ class _StreamScreenState extends State<StreamScreen> {
                   }
                 }
               } catch (e) {
-                final s = context.read<SettingsService>();
                 SoundService.instance.play(SoundEvent.error, settings: s);
                 setPopupState(() {
                   isAdding = false;
@@ -4511,13 +4510,13 @@ class _StreamScreenState extends State<StreamScreen> {
                   final newContent = contentController.text.trim();
                   final newTitle = titleController.text.trim();
                   if (newContent.isNotEmpty) {
+                    final s = context.read<SettingsService>();
                     Navigator.pop(ctx);
                     final now = DateTime.now().millisecondsSinceEpoch;
                     if (newTitle.isNotEmpty && newTitle != currentTitle) {
                       await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
                     }
                     await provider.updateContent(idea['id'], newContent, editedAt: now);
-                    final s = context.read<SettingsService>();
                     SoundService.instance.play(SoundEvent.save, settings: s);
                     _showUndoSnackBar('Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}"', () {});
                   }

@@ -128,7 +128,7 @@ class _DuplicateFinderScreenState extends State<DuplicateFinderScreen> {
                                       final keep = group.first;
                                       final dupIds = group.skip(1).map((t) => t['id'] as String).toList();
                                       await provider.mergeDuplicates(keep['id'] as String, dupIds);
-                                      if (mounted) {
+                                      if (context.mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text('Merged into ${keep['thought_id']}'),

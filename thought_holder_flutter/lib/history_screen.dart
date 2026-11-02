@@ -154,6 +154,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             originalBucket.toLowerCase());
 
     final ideaName = TitleGenerator.getIdeaName(idea);
+    final settings = context.read<SettingsService>();
     String message;
     if (hasValidBucket) {
       await provider.markDone(idea['id'], false);
@@ -164,7 +165,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       message = 'Put back "$ideaName" in Unsorted.';
     }
 
-    final settings = context.read<SettingsService>();
     SoundService.instance.play(SoundEvent.drop, settings: settings);
 
     _showUndoSnackBar(message, () => _restoreThoughtState(snapshot, provider));
@@ -182,6 +182,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         .toList();
     final count = selectedIdeas.length;
     if (count == 0) return;
+    final settings = context.read<SettingsService>();
 
     final snapshots =
         selectedIdeas.map((t) => Map<String, dynamic>.from(t)).toList();
@@ -232,12 +233,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     await provider.loadThoughts();
 
+    if (!mounted) return;
     setState(() {
       _isSelectMode = false;
       _selectedIds.clear();
     });
 
-    final settings = context.read<SettingsService>();
     SoundService.instance.play(SoundEvent.drop, settings: settings);
 
     final noun = count == 1 ? 'idea' : 'ideas';
@@ -259,6 +260,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         .toList();
     final count = selectedIdeas.length;
     if (count == 0) return;
+    final settings = context.read<SettingsService>();
 
     final snapshots =
         selectedIdeas.map((t) => Map<String, dynamic>.from(t)).toList();
@@ -286,12 +288,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     await provider.loadThoughts();
 
+    if (!mounted) return;
     setState(() {
       _isSelectMode = false;
       _selectedIds.clear();
     });
 
-    final settings = context.read<SettingsService>();
     SoundService.instance.play(SoundEvent.trash, settings: settings);
 
     final noun = count == 1 ? 'idea' : 'ideas';
@@ -636,13 +638,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 final newTitle = titleController.text.trim();
                 if (newContent.isNotEmpty) {
                   Navigator.pop(ctx);
+                  final settings = context.read<SettingsService>();
                   final snapshot = Map<String, dynamic>.from(idea);
                   final now = DateTime.now().millisecondsSinceEpoch;
                   if (newTitle.isNotEmpty && newTitle != currentTitle) {
                     await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
                   }
                   await provider.updateContent(idea['id'], newContent, editedAt: now);
-                  final settings = context.read<SettingsService>();
                   SoundService.instance.play(SoundEvent.save, settings: settings);
                   _showUndoSnackBar(
                     'Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}".',
@@ -740,6 +742,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 errorMessage = null;
               });
 
+              final settings = context.read<SettingsService>();
               try {
                 final snapshot = Map<String, dynamic>.from(idea);
                 final canonicalName = await provider.addBucket(targetBucket);
@@ -749,7 +752,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 await provider.fileThought(idea['id'], destination);
                 await provider.markDone(idea['id'], false);
 
-                final settings = context.read<SettingsService>();
                 SoundService.instance.play(SoundEvent.drop, settings: settings);
 
                 if (modalCtx.mounted && Navigator.canPop(modalCtx)) {
@@ -761,7 +763,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   () => _restoreThoughtState(snapshot, provider),
                 );
               } catch (e) {
-                final settings = context.read<SettingsService>();
                 SoundService.instance.play(SoundEvent.error, settings: settings);
                 setPopupState(() {
                   isAdding = false;
