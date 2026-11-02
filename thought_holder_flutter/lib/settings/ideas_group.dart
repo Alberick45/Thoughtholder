@@ -9,6 +9,7 @@ import '../duplicate_finder_screen.dart';
 import 'group_page_scaffold.dart';
 import 'settings_state.dart';
 import 'settings_widgets.dart';
+import 'create_bucket_sheet.dart';
 
 class IdeasGroupScreen extends StatelessWidget {
   const IdeasGroupScreen({super.key});
@@ -215,23 +216,101 @@ class _IdeasGroupContentState extends State<IdeasGroupContent> {
           ),
         ),
 
-        // 5. Collapsible Starter buckets (under "Show more options")
+        const SizedBox(height: 12),
+
+        // 5. Make a new bucket row
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () async {
+            await showCreateBucketSheet(context, thoughtProvider, colors);
+            if (mounted) setState(() {});
+          },
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.add_circle_outline, color: colors.gold, size: 22),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Make a new bucket',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Create a custom bucket with a name and icon',
+                        style: appFont(color: colors.mute, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: colors.mute, size: 20),
+              ],
+            ),
+          ),
+        ),
+
+        // 6. Collapsible Starter buckets (under "Show more options")
         if (isExpanded) ...[
           const SizedBox(height: 20),
           Divider(color: colors.line, height: 1),
           const SizedBox(height: 16),
-          Text(
-            'Starter buckets',
-            style: appFont(
-              color: colors.text,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Add any of the standard starter buckets anytime.',
-            style: appFont(color: colors.mute, fontSize: 13),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Starter buckets',
+                      style: appFont(
+                        color: colors.text,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Add any of the standard starter buckets anytime.',
+                      style: appFont(color: colors.mute, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await showCreateBucketSheet(
+                      context, thoughtProvider, colors);
+                  if (mounted) setState(() {});
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('New bucket'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colors.gold,
+                  side: BorderSide(color: colors.gold),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           ...kStarterBuckets.map((starter) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -6,12 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'thought_provider.dart';
+import 'database_helper.dart';
 import 'navigation_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
 import 'app_theme.dart';
 import 'idea_detail_screen.dart';
-import 'notifications_settings_screen.dart';
 import 'utils/title_generator.dart';
 
 class StreamScreen extends StatefulWidget {
@@ -28,19 +29,68 @@ class _StreamScreenState extends State<StreamScreen> {
   int _visibleTrashCount = 12;
   String? _deletingForeverId; // For 2-step delete confirmation in Trash
 
+  // Sorted tab state
+  bool _bucketsSectionOpen = false;
+  Timer? _bucketDebounceTimer;
+  final ScrollController _sortedScrollController = ScrollController();
+  final GlobalKey _searchBucketsFieldKey = GlobalKey();
+
   // UPDATE 3: Bucket slider & search state
   String _bucketSearchQuery = '';
   final TextEditingController _bucketSearchController = TextEditingController();
   final PageController _bucketPageController = PageController();
   int _bucketCurrentPage = 0;
 
+  // Step 3: Bucket detail search and filters state
+  String? _lastSelectedBucket;
+  String _bucketIdeaSearchQuery = '';
+  final TextEditingController _bucketIdeaSearchController = TextEditingController();
+  Timer? _bucketIdeaSearchDebounce;
+
+  String _bucketFilterDate = 'All time'; // 'All time', 'This week', 'This month', 'Last month', 'This year', 'Pick a month'
+  int? _bucketFilterMonth;
+  int? _bucketFilterYear;
+  bool _bucketFilterDateUnknown = false;
+  String _bucketFilterSort = 'Best first'; // 'Best first', 'Newest first', 'Oldest first'
+  String _bucketFilterWhen = 'Any'; // 'Any', 'Today', 'Soon', 'Later'
+  String _bucketFilterTime = 'Any'; // 'Any', 'Quick', 'Medium', 'Long'
+
+  void _resetBucketFiltersAndSearch() {
+    _bucketIdeaSearchDebounce?.cancel();
+    _bucketIdeaSearchController.clear();
+    _bucketIdeaSearchQuery = '';
+    _bucketFilterDate = 'All time';
+    _bucketFilterMonth = null;
+    _bucketFilterYear = null;
+    _bucketFilterDateUnknown = false;
+    _bucketFilterSort = 'Best first';
+    _bucketFilterWhen = 'Any';
+    _bucketFilterTime = 'Any';
+    _visibleBucketIdeasCount = 20;
+  }
+
   // UPDATE 3: Done search state
   String _doneSearchQuery = '';
   final TextEditingController _doneSearchController = TextEditingController();
 
+  void _scrollToSearchBuckets() {
+    final ctx = _searchBucketsFieldKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: Duration.zero,
+        alignment: 0.0,
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _bucketDebounceTimer?.cancel();
+    _bucketIdeaSearchDebounce?.cancel();
+    _sortedScrollController.dispose();
     _bucketSearchController.dispose();
+    _bucketIdeaSearchController.dispose();
     _bucketPageController.dispose();
     _doneSearchController.dispose();
     super.dispose();
@@ -380,6 +430,26 @@ class _StreamScreenState extends State<StreamScreen> {
     final settings = context.watch<SettingsService>();
     final colors = AppColors.of(settings.theme);
 
+    final bool isBucketOpen = (nav.streamSubTab == 'sorted' && nav.selectedBucket != null && !nav.isTrashOpen);
+
+    // If leaving a bucket, reset search and filters
+    if (_lastSelectedBucket != null && nav.selectedBucket == null) {
+      _resetBucketFiltersAndSearch();
+    }
+    _lastSelectedBucket = nav.selectedBucket;
+
+    if (isBucketOpen) {
+      return SafeArea(
+        child: _buildBucketDetailView(
+          nav,
+          provider,
+          settings,
+          nav.selectedBucket!,
+          colors,
+        ),
+      );
+    }
+
     return SafeArea(
       child: Stack(
         children: [
@@ -393,9 +463,10 @@ class _StreamScreenState extends State<StreamScreen> {
               ],
               // Top Navigation Pills: Unsorted (N) / Sorted / Done
               _buildTopPills(nav, provider, colors, settings),
-              const SizedBox(height: 8),
-              // Subtitle
-              _buildSubtitle(nav, colors),
+              if (!(nav.streamSubTab == 'sorted' && nav.selectedBucket == null && !nav.isTrashOpen)) ...[
+                const SizedBox(height: 8),
+                _buildSubtitle(nav, colors),
+              ],
               const SizedBox(height: 12),
               // Main Content Area
               Expanded(
@@ -427,6 +498,9 @@ class _StreamScreenState extends State<StreamScreen> {
 
   // --- Subtitle Widget (Plain words, sentence case) ---
   Widget _buildSubtitle(NavigationNotifier nav, AppColors colors) {
+    if (nav.streamSubTab == 'sorted' && nav.selectedBucket == null && !nav.isTrashOpen) {
+      return const SizedBox.shrink();
+    }
     String text;
     if (nav.isTrashOpen) {
       text = 'Deleted ideas. Restore or remove forever.';
@@ -437,7 +511,7 @@ class _StreamScreenState extends State<StreamScreen> {
           break;
         case 'sorted':
           text = nav.selectedBucket == null
-              ? 'Ideas grouped by bucket and ranked by priority.'
+              ? ''
               : 'Ranked best-first based on when and time.';
           break;
         case 'done':
@@ -774,7 +848,7 @@ class _StreamScreenState extends State<StreamScreen> {
   }
 
   // ==========================================================================
-  // TAB 2: SORTED TAB (Section 4)
+  // TAB 2: SORTED TAB (Step 1 Redesign)
   // ==========================================================================
   Widget _buildSortedTab(
     NavigationNotifier nav,
@@ -787,119 +861,197 @@ class _StreamScreenState extends State<StreamScreen> {
           nav, provider, settings, nav.selectedBucket!, colors);
     }
 
+    final isDesktop = (!kIsWeb &&
+            (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ||
+        MediaQuery.of(context).size.width >= 600;
+
     final sorted = provider.sortedThoughts;
     final best = provider.bestNextThought;
     final orderedBuckets = provider.getOrderedBuckets(settings.bucketOrder);
 
-    if (sorted.isEmpty && orderedBuckets.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.folder_open, size: 64, color: colors.mute),
-              const SizedBox(height: 16),
-              Text(
-                'No sorted ideas yet',
-                style: appFont(
-                  color: colors.text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'File ideas from the Unsorted tab into buckets to see them prioritized here.',
-                textAlign: TextAlign.center,
-                style: appFont(color: colors.mute, fontSize: 16, height: 1.4),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () => nav.setStreamSubTab('unsorted'),
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Go to Unsorted ideas'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.gold,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+    // If nothing sorted yet: show "Nothing sorted yet. File an idea from Unsorted to begin." with "Go to Unsorted" button.
+    // If there are no buckets, hide the "View buckets" button.
+    if (sorted.isEmpty) {
+      return ListView(
+        key: const PageStorageKey('sorted_scroll_view_empty'),
+        controller: _sortedScrollController,
+        padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 100),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colors.line),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.folder_open, size: 56, color: colors.mute),
+                const SizedBox(height: 14),
+                Text(
+                  'Nothing sorted yet. File an idea from Unsorted to begin.',
+                  textAlign: TextAlign.center,
+                  style: appFont(
+                    color: colors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    height: 1.4,
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 100),
-      children: [
-        // Skippable Onboarding Card (UPDATE 5 - Section D)
-        if (!settings.hasSeenStartHereOnboardingPrompt && sorted.isNotEmpty) ...[
-          _buildStartHereOnboardingCard(context, settings, colors),
-          const SizedBox(height: 16),
-        ],
-
-        // Top "Start here" Card across all buckets (Section 4)
-        if (best != null) ...[
-          _buildStartHereCard(best, provider, colors),
-          const SizedBox(height: 20),
-        ],
-
-        // Buckets Section Header
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Buckets',
-              style: appFont(
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Row(
-              children: [
-                Text(
-                  '${orderedBuckets.length} total',
-                  style: appFont(color: colors.mute, fontSize: 13),
-                ),
-                const SizedBox(width: 10),
-                InkWell(
-                  onTap: () =>
-                      _showCreateBucketDialog(context, provider, colors),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(Icons.add, color: colors.gold, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          'New bucket',
-                          style: appFont(
-                            color: colors.gold,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                const SizedBox(height: 18),
+                ElevatedButton.icon(
+                  onPressed: () => nav.setStreamSubTab('unsorted'),
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('Go to Unsorted'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.gold,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
               ],
             ),
+          ),
+          if (orderedBuckets.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildViewBucketsButton(
+              bucketCount: orderedBuckets.length,
+              isOpen: _bucketsSectionOpen,
+              colors: colors,
+              onTap: () {
+                setState(() {
+                  _bucketsSectionOpen = !_bucketsSectionOpen;
+                });
+                if (_bucketsSectionOpen) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _scrollToSearchBuckets();
+                  });
+                }
+              },
+            ),
+            if (_bucketsSectionOpen) ...[
+              const SizedBox(height: 14),
+              _buildBucketsSection(
+                nav,
+                provider,
+                settings,
+                orderedBuckets,
+                colors,
+              ),
+            ],
+          ],
+        ],
+      );
+    }
+
+    // Default view: Sorted shows ONLY: the pills, then the "Start here" card, then one button.
+    return ListView(
+      key: const PageStorageKey('sorted_scroll_view'),
+      controller: _sortedScrollController,
+      padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 100),
+      children: [
+        if (best != null) ...[
+          _buildStartHereCard(best, provider, settings, colors, isDesktop),
+          const SizedBox(height: 16),
+        ],
+        if (orderedBuckets.isNotEmpty) ...[
+          _buildViewBucketsButton(
+            bucketCount: orderedBuckets.length,
+            isOpen: _bucketsSectionOpen,
+            colors: colors,
+            onTap: () {
+              setState(() {
+                _bucketsSectionOpen = !_bucketsSectionOpen;
+              });
+              if (_bucketsSectionOpen) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _scrollToSearchBuckets();
+                });
+              }
+            },
+          ),
+          if (_bucketsSectionOpen) ...[
+            const SizedBox(height: 14),
+            _buildBucketsSection(
+              nav,
+              provider,
+              settings,
+              orderedBuckets,
+              colors,
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  // --- Full-width 56px View/Hide Buckets Button ---
+  Widget _buildViewBucketsButton({
+    required int bucketCount,
+    required bool isOpen,
+    required AppColors colors,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: 56,
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: colors.card,
+          side: BorderSide(color: colors.line, width: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              isOpen ? 'Hide buckets' : 'View buckets ($bucketCount)',
+              style: appFont(
+                color: colors.text,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Icon(
+              isOpen ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+              color: colors.gold,
+              size: 24,
+            ),
           ],
         ),
-        const SizedBox(height: 12),
+      ),
+    );
+  }
 
-        // Bucket Search Bar (Section A.2)
+  // --- Revealed Buckets Section (Search + 2-at-a-time Slider) ---
+  Widget _buildBucketsSection(
+    NavigationNotifier nav,
+    ThoughtProvider provider,
+    SettingsService settings,
+    List<Map<String, dynamic>> orderedBuckets,
+    AppColors colors,
+  ) {
+    final matchingBuckets = orderedBuckets.where((b) {
+      if (_bucketSearchQuery.isEmpty) return true;
+      final name = (b['name'] as String).toLowerCase();
+      return name.contains(_bucketSearchQuery.toLowerCase());
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 52px Search Buckets field (filters bucket NAMES only, case-insensitive, 150ms debounce)
         Container(
-          height: 48,
+          key: _searchBucketsFieldKey,
+          height: 52,
           decoration: BoxDecoration(
             color: colors.card,
             borderRadius: BorderRadius.circular(12),
@@ -908,23 +1060,30 @@ class _StreamScreenState extends State<StreamScreen> {
           child: TextField(
             controller: _bucketSearchController,
             onChanged: (val) {
-              setState(() {
-                _bucketSearchQuery = val.trim();
-                _bucketCurrentPage = 0;
+              _bucketDebounceTimer?.cancel();
+              _bucketDebounceTimer =
+                  Timer(const Duration(milliseconds: 150), () {
+                if (mounted) {
+                  setState(() {
+                    _bucketSearchQuery = val.trim();
+                    _bucketCurrentPage = 0;
+                  });
+                  if (_bucketPageController.hasClients) {
+                    _bucketPageController.jumpToPage(0);
+                  }
+                }
               });
-              if (_bucketPageController.hasClients) {
-                _bucketPageController.jumpToPage(0);
-              }
             },
             style: appFont(color: colors.text, fontSize: 15),
             decoration: InputDecoration(
               hintText: 'Search buckets...',
               hintStyle: appFont(color: colors.mute, fontSize: 14),
               prefixIcon: Icon(Icons.search, color: colors.mute, size: 20),
-              suffixIcon: _bucketSearchQuery.isNotEmpty
+              suffixIcon: _bucketSearchController.text.isNotEmpty
                   ? IconButton(
                       icon: Icon(Icons.close, color: colors.mute, size: 18),
                       onPressed: () {
+                        _bucketDebounceTimer?.cancel();
                         _bucketSearchController.clear();
                         setState(() {
                           _bucketSearchQuery = '';
@@ -937,21 +1096,15 @@ class _StreamScreenState extends State<StreamScreen> {
                     )
                   : null,
               border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
             ),
           ),
         ),
         const SizedBox(height: 14),
 
-        // 2-at-a-time Slider with Search (Section A.2)
+        // 2-at-a-time Slider
         Builder(
           builder: (ctx) {
-            final matchingBuckets = orderedBuckets.where((b) {
-              if (_bucketSearchQuery.isEmpty) return true;
-              final name = (b['name'] as String).toLowerCase();
-              return name.contains(_bucketSearchQuery.toLowerCase());
-            }).toList();
-
             final List<Widget> cards = [];
             for (final b in matchingBuckets) {
               final bucketName = b['name'] as String;
@@ -1029,43 +1182,7 @@ class _StreamScreenState extends State<StreamScreen> {
               );
             }
 
-            // Append "+ New bucket" card if not searching
-            if (_bucketSearchQuery.isEmpty) {
-              cards.add(
-                InkWell(
-                  onTap: () =>
-                      _showCreateBucketDialog(context, provider, colors),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colors.card.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: colors.gold.withOpacity(0.6),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.add_circle_outline,
-                            size: 28, color: colors.gold),
-                        const SizedBox(height: 6),
-                        Text(
-                          'New bucket',
-                          style: appFont(
-                            color: colors.gold,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }
+            // NOTE: NO bucket creation anywhere on this page!
 
             if (cards.isEmpty) {
               return Container(
@@ -1091,14 +1208,16 @@ class _StreamScreenState extends State<StreamScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Slider navigation controls
-                if (pageCount > 1) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Showing ${safeCurrentPage * 2 + 1}-${math.min((safeCurrentPage + 1) * 2, cards.length)} of ${cards.length}',
-                        style: appFont(color: colors.mute, fontSize: 12),
-                      ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      cards.length == 1
+                          ? 'Showing 1 of 1'
+                          : 'Showing ${safeCurrentPage * 2 + 1}-${math.min((safeCurrentPage + 1) * 2, cards.length)} of ${cards.length}',
+                      style: appFont(color: colors.mute, fontSize: 12),
+                    ),
+                    if (pageCount > 1)
                       Row(
                         children: [
                           IconButton(
@@ -1107,7 +1226,7 @@ class _StreamScreenState extends State<StreamScreen> {
                               size: 16,
                               color: safeCurrentPage > 0
                                   ? colors.gold
-                                  : colors.mute.withOpacity(0.3),
+                                  : colors.mute.withValues(alpha: 0.3),
                             ),
                             onPressed: safeCurrentPage > 0
                                 ? () {
@@ -1134,7 +1253,7 @@ class _StreamScreenState extends State<StreamScreen> {
                               size: 16,
                               color: safeCurrentPage < pageCount - 1
                                   ? colors.gold
-                                  : colors.mute.withOpacity(0.3),
+                                  : colors.mute.withValues(alpha: 0.3),
                             ),
                             onPressed: safeCurrentPage < pageCount - 1
                                 ? () {
@@ -1149,10 +1268,9 @@ class _StreamScreenState extends State<StreamScreen> {
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                ],
+                  ],
+                ),
+                const SizedBox(height: 6),
 
                 // 2-at-a-time Slider
                 SizedBox(
@@ -1210,308 +1328,201 @@ class _StreamScreenState extends State<StreamScreen> {
     );
   }
 
-  // --- Skippable Start Here Onboarding Card (UPDATE 5 - Section D) ---
-  Widget _buildStartHereOnboardingCard(
-    BuildContext context,
-    SettingsService settings,
-    AppColors colors,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.gold, width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.star_outline, color: colors.gold, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Want a nudge to tell you what to start with?',
-                  style: appFont(
-                    color: colors.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'We can send you a gentle reminder with your top-priority idea at predictable times.',
-            style: appFont(color: colors.mute, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      settings.setSeenStartHereOnboardingPrompt();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const NotificationsSettingsScreen(),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: colors.gold,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: Text(
-                      'Yes, set it up',
-                      style: appFont(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: OutlinedButton(
-                    onPressed: () {
-                      settings.setSeenStartHereOnboardingPrompt();
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: colors.line),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: Text(
-                      'No thanks',
-                      style: appFont(
-                        color: colors.mute,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   // --- Top "Start here" Card for Sorted View ---
   Widget _buildStartHereCard(
     Map<String, dynamic> thought,
     ThoughtProvider provider,
+    SettingsService settings,
     AppColors colors,
+    bool isDesktop,
   ) {
-    final settings = context.read<SettingsService>();
-    final ideaName = TitleGenerator.getIdeaName(thought);
-    final timestamp = IdeaFormatters.formatReadableTimestamp(thought['created_at'] as int?);
-    final captureIcon = IdeaFormatters.getCaptureIcon(thought['audio_path'] ?? thought['type']);
-    final bucketName = thought['bucket'] as String? ?? 'General';
-    final iconKey = provider.getBucketIcon(bucketName);
-    final iconData = kBucketIcons[iconKey] ?? Icons.folder_outlined;
-    final reason = RankingEngine.getReason(thought);
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.gold, width: 1.8),
-        boxShadow: [
-          BoxShadow(
-            color: colors.gold.withOpacity(0.08),
-            blurRadius: 16,
-            spreadRadius: 2,
-          ),
-        ],
+    return SortedIdeaCard(
+      idea: thought,
+      colors: colors,
+      provider: provider,
+      settings: settings,
+      isStartHere: true,
+      isDesktop: isDesktop,
+      onReadMore: () => _showReadMorePopup(
+        context: context,
+        idea: thought,
+        provider: provider,
+        colors: colors,
+        settings: settings,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header: "★ Start here" gold badge + Idea Name + Timestamp + Bucket Pill
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: colors.gold,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '★ Start here',
-                            style: appFont(
-                              color: Colors.black,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            ideaName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: appFont(
-                              color: colors.gold,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        if (captureIcon != null) ...[
-                          Icon(captureIcon, size: 12, color: colors.mute),
-                          const SizedBox(width: 4),
-                        ],
-                        Text(
-                          timestamp,
-                          style: appFont(color: colors.mute, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: colors.goldBg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: colors.gold.withOpacity(0.5)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(iconData, size: 14, color: colors.gold),
-                    const SizedBox(width: 5),
-                    Text(
-                      bucketName,
-                      style: appFont(
-                        color: colors.gold,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Capped Text (3 lines, Read more)
-          _CappedText(
-            text: thought['content'] as String? ?? '',
-            colors: colors,
-            fontSize: 16,
-          ),
-          const SizedBox(height: 8),
-
-          // Plain reason line (Sentence case, plain English)
-          Text(
-            reason,
-            style: appFont(
-              color: colors.mute,
-              fontSize: 13,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Visible Action Buttons (Icon + Text, >=48px target)
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    provider.markDone(thought['id'], true);
-                    SoundService.instance.play(SoundEvent.done, settings: settings);
-                    _showUndoSnackBar('Marked "$ideaName" as done', () {
-                      provider.markDone(thought['id'], false);
-                    });
-                  },
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('Mark done'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colors.done,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                onPressed: () {
-                  provider.moveToTrash(thought['id']);
-                  SoundService.instance.play(SoundEvent.trash, settings: settings);
-                  _showUndoSnackBar('Moved "$ideaName" to trash', () {
-                    provider.restoreFromTrash(thought['id']);
-                  });
-                },
-                icon: Icon(Icons.delete_outline, size: 18, color: colors.bad),
-                label: Text(
-                  'Trash',
-                  style: appFont(color: colors.bad, fontWeight: FontWeight.bold),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: colors.bad.withOpacity(0.5)),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: Icon(Icons.more_vert, color: colors.mute),
-                tooltip: 'More options',
-                onPressed: () =>
-                    _showIdeaContextMenu(context, provider, thought, colors),
-              ),
-            ],
-          ),
-        ],
+      onMoreOptions: () => _showIdeaContextMenu(
+        context,
+        provider,
+        thought,
+        colors,
       ),
+      onMarkDone: () {
+        final ideaName = TitleGenerator.getIdeaName(thought);
+        provider.markDone(thought['id'], true);
+        SoundService.instance.play(SoundEvent.done, settings: settings);
+        _showUndoSnackBar('Marked "$ideaName" as done', () {
+          provider.markDone(thought['id'], false);
+        });
+      },
     );
   }
 
-  // --- Drill-Down Bucket View (Section 4) ---
+  // ==========================================================================
+  // STEP 3: THE BUCKET PAGE (FOCUS MODE)
+  // ==========================================================================
+
+  static const List<String> _kMonthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
+
+  static bool _isPlaceholderIdea(Map<String, dynamic> idea) {
+    final raw = idea['created_at'];
+    if (raw == null) return true;
+    final val = (raw as num).toInt();
+    if (val <= 0) return true;
+    final cutoff = DateTime(2024, 1, 2).millisecondsSinceEpoch;
+    return val < cutoff;
+  }
+
+  static List<Map<String, dynamic>> _applyBucketFilters({
+    required List<Map<String, dynamic>> allIdeas,
+    required String searchQuery,
+    required String date,
+    required int? month,
+    required int? year,
+    required bool dateUnknown,
+    required String sort,
+    required String when,
+    required String time,
+  }) {
+    var list = List<Map<String, dynamic>>.from(allIdeas);
+
+    // 1. Search Query: matches idea name and text, any word, case-insensitive
+    if (searchQuery.isNotEmpty) {
+      final words = searchQuery
+          .toLowerCase()
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .toList();
+      if (words.isNotEmpty) {
+        list = list.where((idea) {
+          final name = TitleGenerator.getIdeaName(idea).toLowerCase();
+          final text = (idea['text'] as String? ?? '').toLowerCase();
+          final full = '$name $text';
+          return words.any((w) => full.contains(w));
+        }).toList();
+      }
+    }
+
+    // 2. Date Filter
+    if (date != 'All time') {
+      if (dateUnknown) {
+        list = list.where(_isPlaceholderIdea).toList();
+      } else if (date == 'This week') {
+        final now = DateTime.now();
+        final startOfWeek = DateTime(now.year, now.month, now.day)
+            .subtract(Duration(days: now.weekday - 1));
+        final endOfWeek = startOfWeek.add(const Duration(days: 7));
+        list = list.where((idea) {
+          if (_isPlaceholderIdea(idea)) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(
+                  (idea['created_at'] as num).toInt())
+              .toLocal();
+          return (dt.isAfter(startOfWeek) ||
+                  dt.isAtSameMomentAs(startOfWeek)) &&
+              dt.isBefore(endOfWeek);
+        }).toList();
+      } else if (date == 'This month') {
+        final now = DateTime.now();
+        list = list.where((idea) {
+          if (_isPlaceholderIdea(idea)) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(
+                  (idea['created_at'] as num).toInt())
+              .toLocal();
+          return dt.year == now.year && dt.month == now.month;
+        }).toList();
+      } else if (date == 'Last month') {
+        final now = DateTime.now();
+        final lmYear = now.month == 1 ? now.year - 1 : now.year;
+        final lmMonth = now.month == 1 ? 12 : now.month - 1;
+        list = list.where((idea) {
+          if (_isPlaceholderIdea(idea)) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(
+                  (idea['created_at'] as num).toInt())
+              .toLocal();
+          return dt.year == lmYear && dt.month == lmMonth;
+        }).toList();
+      } else if (date == 'This year') {
+        final now = DateTime.now();
+        list = list.where((idea) {
+          if (_isPlaceholderIdea(idea)) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(
+                  (idea['created_at'] as num).toInt())
+              .toLocal();
+          return dt.year == now.year;
+        }).toList();
+      } else if (date == 'Pick a month') {
+        if (month != null && year != null) {
+          list = list.where((idea) {
+            if (_isPlaceholderIdea(idea)) return false;
+            final dt = DateTime.fromMillisecondsSinceEpoch(
+                    (idea['created_at'] as num).toInt())
+                .toLocal();
+            return dt.year == year && dt.month == month;
+          }).toList();
+        }
+      }
+    }
+
+    // 3. When Filter
+    if (when != 'Any') {
+      list = list.where((idea) {
+        final val = (idea['when_val'] as String? ?? '').toLowerCase();
+        return val == when.toLowerCase();
+      }).toList();
+    }
+
+    // 4. Time Filter
+    if (time != 'Any') {
+      list = list.where((idea) {
+        final val = (idea['time_val'] as String? ?? '').toLowerCase();
+        return val == time.toLowerCase();
+      }).toList();
+    }
+
+    // 5. Sort
+    if (sort == 'Best first') {
+      list.sort(RankingEngine.compareRanked);
+    } else if (sort == 'Newest first') {
+      list.sort((a, b) {
+        final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
+        final int cB = (b['created_at'] as num?)?.toInt() ?? 0;
+        return cB.compareTo(cA);
+      });
+    } else if (sort == 'Oldest first') {
+      list.sort((a, b) {
+        final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
+        final int cB = (b['created_at'] as num?)?.toInt() ?? 0;
+        if (cA <= 0 && cB > 0) return 1;
+        if (cB <= 0 && cA > 0) return -1;
+        return cA.compareTo(cB);
+      });
+    }
+
+    return list;
+  }
+
   Widget _buildBucketDetailView(
     NavigationNotifier nav,
     ThoughtProvider provider,
@@ -1519,23 +1530,145 @@ class _StreamScreenState extends State<StreamScreen> {
     String bucketName,
     AppColors colors,
   ) {
-    final ideas = provider.getThoughtsForBucket(bucketName);
+    final allIdeas = provider.getThoughtsForBucket(bucketName);
+    final int totalBucketIdeas = allIdeas.length;
     final iconKey = provider.getBucketIcon(bucketName);
     final iconData = kBucketIcons[iconKey] ?? Icons.folder_outlined;
+    final isDesktop = (!kIsWeb &&
+            (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ||
+        MediaQuery.of(context).size.width >= 600;
 
-    final visibleCount = math.min(_visibleBucketIdeasCount, ideas.length);
-    final visibleIdeas = ideas.take(visibleCount).toList();
+    final filteredIdeas = _applyBucketFilters(
+      allIdeas: allIdeas,
+      searchQuery: _bucketIdeaSearchQuery,
+      date: _bucketFilterDate,
+      month: _bucketFilterMonth,
+      year: _bucketFilterYear,
+      dateUnknown: _bucketFilterDateUnknown,
+      sort: _bucketFilterSort,
+      when: _bucketFilterWhen,
+      time: _bucketFilterTime,
+    );
+
+    final int visibleCount =
+        math.min(_visibleBucketIdeasCount, filteredIdeas.length);
+    final visibleIdeas = filteredIdeas.take(visibleCount).toList();
+
+    int activeFilterCount = 0;
+    if (_bucketFilterDate != 'All time') activeFilterCount++;
+    if (_bucketFilterSort != 'Best first') activeFilterCount++;
+    if (_bucketFilterWhen != 'Any') activeFilterCount++;
+    if (_bucketFilterTime != 'Any') activeFilterCount++;
+
+    final activeChips = <Widget>[];
+
+    if (_bucketFilterDate != 'All time') {
+      String dateLabel = _bucketFilterDate;
+      if (_bucketFilterDateUnknown) {
+        dateLabel = 'Date: Unknown';
+      } else if (_bucketFilterDate == 'Pick a month' &&
+          _bucketFilterMonth != null &&
+          _bucketFilterYear != null) {
+        dateLabel =
+            'Date: ${_kMonthNames[_bucketFilterMonth! - 1]} $_bucketFilterYear';
+      } else {
+        dateLabel = 'Date: $_bucketFilterDate';
+      }
+      activeChips.add(
+        Chip(
+          label: Text(
+            dateLabel,
+            style: appFont(color: colors.text, fontSize: 12),
+          ),
+          deleteIcon: Icon(Icons.close, size: 14, color: colors.mute),
+          onDeleted: () {
+            setState(() {
+              _bucketFilterDate = 'All time';
+              _bucketFilterMonth = null;
+              _bucketFilterYear = null;
+              _bucketFilterDateUnknown = false;
+            });
+          },
+          backgroundColor: colors.card,
+          side: BorderSide(color: colors.line),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+
+    if (_bucketFilterSort != 'Best first') {
+      activeChips.add(
+        Chip(
+          label: Text(
+            'Sort: $_bucketFilterSort',
+            style: appFont(color: colors.text, fontSize: 12),
+          ),
+          deleteIcon: Icon(Icons.close, size: 14, color: colors.mute),
+          onDeleted: () {
+            setState(() => _bucketFilterSort = 'Best first');
+          },
+          backgroundColor: colors.card,
+          side: BorderSide(color: colors.line),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+
+    if (_bucketFilterWhen != 'Any') {
+      activeChips.add(
+        Chip(
+          label: Text(
+            'When: $_bucketFilterWhen',
+            style: appFont(color: colors.text, fontSize: 12),
+          ),
+          deleteIcon: Icon(Icons.close, size: 14, color: colors.mute),
+          onDeleted: () {
+            setState(() => _bucketFilterWhen = 'Any');
+          },
+          backgroundColor: colors.card,
+          side: BorderSide(color: colors.line),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+
+    if (_bucketFilterTime != 'Any') {
+      activeChips.add(
+        Chip(
+          label: Text(
+            'Time: $_bucketFilterTime',
+            style: appFont(color: colors.text, fontSize: 12),
+          ),
+          deleteIcon: Icon(Icons.close, size: 14, color: colors.mute),
+          onDeleted: () {
+            setState(() => _bucketFilterTime = 'Any');
+          },
+          backgroundColor: colors.card,
+          side: BorderSide(color: colors.line),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+
+    final String resultLine = filteredIdeas.length > visibleCount
+        ? 'Showing $visibleCount of ${filteredIdeas.length}'
+        : '${filteredIdeas.length} ${filteredIdeas.length == 1 ? 'idea matches' : 'ideas match'}';
 
     return ListView(
-      padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 100),
+      padding:
+          const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 40),
       children: [
-        // "‹ Back to all buckets" Button (Visible, min 48px height)
+        // Top of page: "‹ All buckets" (48px touch target at very top)
         Semantics(
           button: true,
-          label: 'Back to all buckets',
+          label: '‹ All buckets',
           child: InkWell(
             onTap: () {
-              setState(() => _visibleBucketIdeasCount = 20);
+              _resetBucketFiltersAndSearch();
               nav.selectBucket(null);
             },
             borderRadius: BorderRadius.circular(10),
@@ -1546,13 +1679,13 @@ class _StreamScreenState extends State<StreamScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.arrow_back, color: colors.gold, size: 20),
-                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_left, color: colors.gold, size: 24),
+                  const SizedBox(width: 4),
                   Text(
-                    'Back to all buckets',
+                    'All buckets',
                     style: appFont(
                       color: colors.gold,
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1563,24 +1696,30 @@ class _StreamScreenState extends State<StreamScreen> {
         ),
         const SizedBox(height: 6),
 
-        // Bucket Title Header
+        // Bucket icon, name and "48 ideas"
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Icon(iconData, size: 24, color: colors.gold),
-                const SizedBox(width: 10),
-                Text(
-                  bucketName,
-                  style: appFont(
-                    color: colors.text,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Row(
+                children: [
+                  Icon(iconData, size: 26, color: colors.gold),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      bucketName,
+                      style: appFont(
+                        color: colors.text,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(width: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
@@ -1589,115 +1728,227 @@ class _StreamScreenState extends State<StreamScreen> {
                 border: Border.all(color: colors.line),
               ),
               child: Text(
-                '${ideas.length} ${ideas.length == 1 ? 'idea' : 'ideas'}',
-                style: appFont(color: colors.mute, fontSize: 13),
+                '$totalBucketIdeas ${totalBucketIdeas == 1 ? 'idea' : 'ideas'}',
+                style: appFont(
+                  color: colors.mute,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 16),
 
-        // UPDATE 6 - Section C: Spreading ideas out card (>= 25 ideas)
-        if (ideas.length >= 25 && !settings.isBucketSplitDismissed(bucketName)) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: colors.gold.withOpacity(0.5), width: 1.5),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.call_split, color: colors.gold, size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'This bucket is getting big. Want to split it into a new bucket?',
-                        style: appFont(
-                          color: colors.text,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          height: 1.3,
-                        ),
-                      ),
+        // Search & Filter Row directly under header BEFORE any ideas
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 52,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: colors.line),
+                  ),
+                  alignment: Alignment.center,
+                  child: TextField(
+                    controller: _bucketIdeaSearchController,
+                    onChanged: (val) {
+                      _bucketIdeaSearchDebounce?.cancel();
+                      _bucketIdeaSearchDebounce =
+                          Timer(const Duration(milliseconds: 200), () {
+                        if (mounted) {
+                          setState(() {
+                            _bucketIdeaSearchQuery = val.trim();
+                            _visibleBucketIdeasCount = 20;
+                          });
+                        }
+                      });
+                    },
+                    style: appFont(color: colors.text, fontSize: 15),
+                    decoration: InputDecoration(
+                      hintText: 'Search this bucket...',
+                      hintStyle: appFont(color: colors.mute, fontSize: 14),
+                      prefixIcon:
+                          Icon(Icons.search, color: colors.mute, size: 20),
+                      suffixIcon: _bucketIdeaSearchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(Icons.close,
+                                  color: colors.mute, size: 18),
+                              onPressed: () {
+                                _bucketIdeaSearchDebounce?.cancel();
+                                _bucketIdeaSearchController.clear();
+                                setState(() {
+                                  _bucketIdeaSearchQuery = '';
+                                  _visibleBucketIdeasCount = 20;
+                                });
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 14),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 14),
-                Row(
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () {
+                  _showBucketFilterSheet(context, allIdeas, colors, isDesktop);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      activeFilterCount > 0 ? colors.gold : colors.card,
+                  foregroundColor:
+                      activeFilterCount > 0 ? Colors.black : colors.text,
+                  side: BorderSide(
+                    color: activeFilterCount > 0 ? colors.gold : colors.line,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            await settings.dismissBucketSplit(bucketName);
-                            if (mounted) {
-                              setState(() {});
-                              _showCreateBucketDialog(context, provider, colors);
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: colors.gold,
-                            foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: Text(
-                            'Make a new bucket',
-                            style: appFont(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+                    Icon(
+                      Icons.tune,
+                      size: 18,
+                      color: activeFilterCount > 0 ? Colors.black : colors.mute,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Filter',
+                      style: appFont(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color:
+                            activeFilterCount > 0 ? Colors.black : colors.text,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: () async {
-                          await settings.dismissBucketSplit(bucketName);
-                          setState(() {});
-                        },
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: colors.line),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                    if (activeFilterCount > 0) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          'Not now',
+                          '$activeFilterCount',
                           style: appFont(
-                            color: colors.mute,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
-              ],
+              ),
             ),
+          ],
+        ),
+
+        // Active filters chips row
+        if (activeChips.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ...activeChips,
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _resetBucketFiltersAndSearch();
+                  });
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  'Clear filters',
+                  style: appFont(
+                    color: colors.gold,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
         ],
 
-        if (ideas.isEmpty)
+        // Result line: "Showing 20 of 48" or "12 ideas match"
+        const SizedBox(height: 12),
+        Text(
+          resultLine,
+          style: appFont(
+            color: colors.mute,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Ideas or Empty result
+        if (filteredIdeas.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 40.0),
             child: Center(
-              child: Text(
-                'No ideas in this bucket yet.\nFile ideas from Unsorted to populate this bucket.',
-                textAlign: TextAlign.center,
-                style: appFont(color: colors.mute, fontSize: 16, height: 1.4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.search_off, size: 48, color: colors.mute),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No ideas match.',
+                    style: appFont(
+                      color: colors.mute,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _resetBucketFiltersAndSearch();
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.card,
+                      foregroundColor: colors.gold,
+                      side: BorderSide(color: colors.line),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Clear filters',
+                      style: appFont(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           )
@@ -1705,11 +1956,8 @@ class _StreamScreenState extends State<StreamScreen> {
           ...visibleIdeas.asMap().entries.map((entry) {
             final int index = entry.key;
             final Map<String, dynamic> idea = entry.value;
-            final bool isFirst = (index == 0);
-
-            final bool isDesktop = (!kIsWeb &&
-                    (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ||
-                MediaQuery.of(context).size.width >= 600;
+            final bool isFirst =
+                (index == 0 && _bucketFilterSort == 'Best first');
 
             return _buildRankedIdeaCard(
               idea: idea,
@@ -1721,7 +1969,7 @@ class _StreamScreenState extends State<StreamScreen> {
             );
           }),
           // Pagination: "Show more" button if more ideas exist
-          if (ideas.length > visibleCount) ...[
+          if (filteredIdeas.length > visibleCount) ...[
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -1737,7 +1985,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   ),
                 ),
                 child: Text(
-                  'Show more ideas (${ideas.length - visibleCount} remaining)',
+                  'Show more',
                   style: appFont(
                     color: colors.gold,
                     fontSize: 14,
@@ -1752,7 +2000,109 @@ class _StreamScreenState extends State<StreamScreen> {
     );
   }
 
-  // --- Ranked Idea Card in Drill-Down Bucket View ---
+  void _showBucketFilterSheet(
+    BuildContext context,
+    List<Map<String, dynamic>> allIdeas,
+    AppColors colors,
+    bool isDesktop,
+  ) {
+    if (isDesktop) {
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: colors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: colors.line),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
+            child: _BucketFilterContent(
+              allIdeas: allIdeas,
+              searchQuery: _bucketIdeaSearchQuery,
+              initialDate: _bucketFilterDate,
+              initialMonth: _bucketFilterMonth,
+              initialYear: _bucketFilterYear,
+              initialDateUnknown: _bucketFilterDateUnknown,
+              initialSort: _bucketFilterSort,
+              initialWhen: _bucketFilterWhen,
+              initialTime: _bucketFilterTime,
+              colors: colors,
+              onApply: ({
+                required String date,
+                required int? month,
+                required int? year,
+                required bool dateUnknown,
+                required String sort,
+                required String when,
+                required String time,
+              }) {
+                setState(() {
+                  _bucketFilterDate = date;
+                  _bucketFilterMonth = month;
+                  _bucketFilterYear = year;
+                  _bucketFilterDateUnknown = dateUnknown;
+                  _bucketFilterSort = sort;
+                  _bucketFilterWhen = when;
+                  _bucketFilterTime = time;
+                  _visibleBucketIdeasCount = 20;
+                });
+              },
+            ),
+          ),
+        ),
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: colors.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
+          ),
+          child: _BucketFilterContent(
+            allIdeas: allIdeas,
+            searchQuery: _bucketIdeaSearchQuery,
+            initialDate: _bucketFilterDate,
+            initialMonth: _bucketFilterMonth,
+            initialYear: _bucketFilterYear,
+            initialDateUnknown: _bucketFilterDateUnknown,
+            initialSort: _bucketFilterSort,
+            initialWhen: _bucketFilterWhen,
+            initialTime: _bucketFilterTime,
+            colors: colors,
+            onApply: ({
+              required String date,
+              required int? month,
+              required int? year,
+              required bool dateUnknown,
+              required String sort,
+              required String when,
+              required String time,
+            }) {
+              setState(() {
+                _bucketFilterDate = date;
+                _bucketFilterMonth = month;
+                _bucketFilterYear = year;
+                _bucketFilterDateUnknown = dateUnknown;
+                _bucketFilterSort = sort;
+                _bucketFilterWhen = when;
+                _bucketFilterTime = time;
+                _visibleBucketIdeasCount = 20;
+              });
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+
+  // --- Ranked Idea Card in Drill-Down Bucket View (Step 2: Shared Idea Card) ---
   Widget _buildRankedIdeaCard({
     required Map<String, dynamic> idea,
     required bool isFirst,
@@ -1761,175 +2111,33 @@ class _StreamScreenState extends State<StreamScreen> {
     required SettingsService settings,
     required bool isDesktop,
   }) {
-    final whenVal = idea['when_val'] as String? ?? 'Soon';
-    final timeVal = idea['time_val'] as String? ?? 'Medium';
-    final reason = RankingEngine.getReason(idea);
     final ideaName = TitleGenerator.getIdeaName(idea);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Fixed height idea card (same card as Unsorted)
-          SizedBox(
-            height: isDesktop ? 220.0 : 200.0,
-            child: FixedIdeaCard(
-              idea: idea,
-              colors: colors,
-              provider: provider,
-              isFirst: isFirst,
-              isDesktop: isDesktop,
-              onReadMore: () => _showReadMorePopup(
-                context: context,
-                idea: idea,
-                provider: provider,
-                colors: colors,
-                settings: settings,
-              ),
-              onMoreOptions: () =>
-                  _showIdeaContextMenu(context, provider, idea, colors),
-            ),
-          ),
-          const SizedBox(height: 6),
-
-          // Plain Reason Line
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              reason,
-              style: appFont(
-                color: colors.mute,
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Priority Cycle Buttons (When and Time, min 48px height)
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: () => provider.cycleWhen(idea['id']),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: colors.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: colors.line),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.schedule, size: 15, color: colors.gold),
-                        const SizedBox(width: 6),
-                        Text(
-                          'When: $whenVal',
-                          style: appFont(
-                            color: colors.text,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: InkWell(
-                  onTap: () => provider.cycleTime(idea['id']),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: colors.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: colors.line),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.timer_outlined, size: 15, color: colors.gold),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Time: $timeVal',
-                          style: appFont(
-                            color: colors.text,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Visible Action Buttons: [✓ Mark done] and [🗑 Trash]
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      provider.markDone(idea['id'], true);
-                      SoundService.instance.play(SoundEvent.done, settings: settings);
-                      _showUndoSnackBar('Marked "$ideaName" as done', () {
-                        provider.markDone(idea['id'], false);
-                      });
-                    },
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Mark done'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: colors.done,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    provider.moveToTrash(idea['id']);
-                    SoundService.instance.play(SoundEvent.trash, settings: settings);
-                    _showUndoSnackBar('Moved "$ideaName" to trash', () {
-                      provider.restoreFromTrash(idea['id']);
-                    });
-                  },
-                  icon: Icon(Icons.delete_outline, size: 16, color: colors.bad),
-                  label: Text(
-                    'Trash',
-                    style: appFont(color: colors.bad, fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: colors.bad.withOpacity(0.5)),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+      child: SortedIdeaCard(
+        idea: idea,
+        colors: colors,
+        provider: provider,
+        settings: settings,
+        isStartHere: isFirst,
+        isDesktop: isDesktop,
+        onReadMore: () => _showReadMorePopup(
+          context: context,
+          idea: idea,
+          provider: provider,
+          colors: colors,
+          settings: settings,
+        ),
+        onMoreOptions: () =>
+            _showIdeaContextMenu(context, provider, idea, colors),
+        onMarkDone: () {
+          provider.markDone(idea['id'], true);
+          SoundService.instance.play(SoundEvent.done, settings: settings);
+          _showUndoSnackBar('Marked "$ideaName" as done', () {
+            provider.markDone(idea['id'], false);
+          });
+        },
       ),
     );
   }
@@ -2727,6 +2935,7 @@ class _StreamScreenState extends State<StreamScreen> {
   // ==========================================================================
 
   // --- Create / Edit Bucket Dialog with 12 Icon Selector Grid ---
+  // ignore: unused_element
   void _showCreateBucketDialog(
     BuildContext context,
     ThoughtProvider provider,
@@ -3095,17 +3304,57 @@ class _StreamScreenState extends State<StreamScreen> {
     );
   }
 
-  // --- Idea Context Menu (Section D: Exact 7 buttons in order) ---
+  // --- Idea Context Menu (Step 2: Shared ⋯ Menu with large 52px buttons) ---
   void _showIdeaContextMenu(
     BuildContext context,
     ThoughtProvider provider,
     Map<String, dynamic> idea,
     AppColors colors,
   ) {
+    final settings = context.read<SettingsService>();
     final ideaName = TitleGenerator.getIdeaName(idea);
     final timestamp = IdeaFormatters.formatReadableTimestamp(idea['created_at'] as int?);
     final captureIcon = IdeaFormatters.getCaptureIcon(idea['audio_path'] ?? idea['type']);
     final content = idea['content'] as String? ?? '';
+    final whenVal = idea['when_val'] as String? ?? 'Soon';
+    final timeVal = idea['time_val'] as String? ?? 'Medium';
+
+    Widget buildMenuItem({
+      required IconData icon,
+      required String label,
+      required VoidCallback onTap,
+      Color? iconColor,
+      Color? textColor,
+      Widget? trailing,
+    }) {
+      return SizedBox(
+        height: 52,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Icon(icon, color: iconColor ?? colors.text, size: 22),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: appFont(
+                      color: textColor ?? colors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                ?trailing,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     showModalBottomSheet(
       context: context,
@@ -3153,198 +3402,278 @@ class _StreamScreenState extends State<StreamScreen> {
                 ],
               ),
             ),
-            // 1. Edit
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showEditIdeaDialog(context, provider, idea, colors);
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit_outlined, color: colors.text, size: 20),
-                      const SizedBox(width: 14),
-                      Text('Edit',
-                          style: appFont(color: colors.text, fontSize: 15)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 2. Copy
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Clipboard.setData(ClipboardData(text: content));
-                  _showUndoSnackBar('Copied "$ideaName" to clipboard', () {});
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.copy_outlined, color: colors.text, size: 20),
-                      const SizedBox(width: 14),
-                      Text('Copy',
-                          style: appFont(color: colors.text, fontSize: 15)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 3. Move to another bucket
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showChooseBucketPopup(
-                    context: context,
-                    provider: provider,
-                    idea: idea,
-                    colors: colors,
-                    heading: 'Move to another bucket',
-                  );
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.drive_file_move_outlined,
-                          color: colors.text, size: 20),
-                      const SizedBox(width: 14),
-                      Text('Move to another bucket',
-                          style: appFont(color: colors.text, fontSize: 15)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 4. Move back to Unsorted
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  final oldBucket = idea['bucket'] as String?;
-                  Navigator.pop(ctx);
-                  provider.unfileThought(idea['id']);
-                  final s = context.read<SettingsService>();
-                  SoundService.instance.play(SoundEvent.drop, settings: s);
-                  _showUndoSnackBar('Moved "$ideaName" back to Unsorted', () {
-                    if (oldBucket != null && oldBucket.isNotEmpty) {
-                      provider.fileThought(idea['id'], oldBucket);
-                    }
-                  });
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.inbox_outlined, color: colors.text, size: 20),
-                      const SizedBox(width: 14),
-                      Text('Move back to Unsorted',
-                          style: appFont(color: colors.text, fontSize: 15)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 5. Mark done
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(ctx);
-                  provider.markDone(idea['id'], true);
-                  final s = context.read<SettingsService>();
-                  SoundService.instance.play(SoundEvent.done, settings: s);
-                  _showUndoSnackBar('Marked "$ideaName" as done', () {
-                    provider.markDone(idea['id'], false);
-                  });
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle_outline,
-                          color: colors.done, size: 20),
-                      const SizedBox(width: 14),
-                      Text(
-                        'Mark done',
-                        style: appFont(
-                          color: colors.done,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 6. Move to Trash
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(ctx);
-                  provider.moveToTrash(idea['id']);
-                  final s = context.read<SettingsService>();
-                  SoundService.instance.play(SoundEvent.trash, settings: s);
-                  _showUndoSnackBar('Moved "$ideaName" to trash', () {
-                    provider.restoreFromTrash(idea['id']);
-                  });
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline,
-                          color: colors.bad, size: 20),
-                      const SizedBox(width: 14),
-                      Text(
-                        'Move to Trash',
-                        style: appFont(
-                          color: colors.bad,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
             const Divider(height: 12),
-            // 7. Cancel
-            SizedBox(
-              height: 48,
-              child: InkWell(
-                onTap: () => Navigator.pop(ctx),
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.close, color: colors.mute, size: 20),
-                      const SizedBox(width: 14),
-                      Text('Cancel',
-                          style: appFont(color: colors.mute, fontSize: 15)),
-                    ],
-                  ),
+
+            // 1. Edit
+            buildMenuItem(
+              icon: Icons.edit_outlined,
+              label: 'Edit',
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEditIdeaDialog(context, provider, idea, colors);
+              },
+            ),
+
+            // 2. Copy
+            buildMenuItem(
+              icon: Icons.copy_outlined,
+              label: 'Copy',
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: content));
+                _showUndoSnackBar('Copied "$ideaName" to clipboard', () {});
+              },
+            ),
+
+            // 3. "When: Soon" (opens small chooser: Today, Soon, Later)
+            buildMenuItem(
+              icon: Icons.schedule_outlined,
+              label: 'When: $whenVal',
+              trailing: Icon(Icons.chevron_right, color: colors.mute, size: 20),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showWhenChooser(context, provider, idea, colors, settings);
+              },
+            ),
+
+            // 4. "Time: Medium" (opens small chooser: Quick, Medium, Long)
+            buildMenuItem(
+              icon: Icons.timer_outlined,
+              label: 'Time: $timeVal',
+              trailing: Icon(Icons.chevron_right, color: colors.mute, size: 20),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showTimeChooser(context, provider, idea, colors, settings);
+              },
+            ),
+
+            // 5. Move to another bucket (opens the existing "Choose a bucket" popup, which can create buckets)
+            buildMenuItem(
+              icon: Icons.drive_file_move_outlined,
+              label: 'Move to another bucket',
+              onTap: () {
+                Navigator.pop(ctx);
+                _showChooseBucketPopup(
+                  context: context,
+                  provider: provider,
+                  idea: idea,
+                  colors: colors,
+                  heading: 'Move to another bucket',
+                );
+              },
+            ),
+
+            // 6. Move back to Unsorted
+            buildMenuItem(
+              icon: Icons.inbox_outlined,
+              label: 'Move back to Unsorted',
+              onTap: () {
+                final oldBucket = idea['bucket'] as String?;
+                Navigator.pop(ctx);
+                provider.unfileThought(idea['id']);
+                SoundService.instance.play(SoundEvent.drop, settings: settings);
+                _showUndoSnackBar('Moved "$ideaName" back to Unsorted', () {
+                  if (oldBucket != null && oldBucket.isNotEmpty) {
+                    provider.fileThought(idea['id'], oldBucket);
+                  }
+                });
+              },
+            ),
+
+            // 7. Move to Trash
+            buildMenuItem(
+              icon: Icons.delete_outline,
+              label: 'Move to Trash',
+              iconColor: colors.bad,
+              textColor: colors.bad,
+              onTap: () {
+                Navigator.pop(ctx);
+                provider.moveToTrash(idea['id']);
+                SoundService.instance.play(SoundEvent.trash, settings: settings);
+                _showUndoSnackBar('Moved to Trash', () {
+                  provider.restoreFromTrash(idea['id']);
+                });
+              },
+            ),
+
+            const Divider(height: 12),
+
+            // 8. Cancel
+            buildMenuItem(
+              icon: Icons.close,
+              label: 'Cancel',
+              iconColor: colors.mute,
+              textColor: colors.mute,
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Small Chooser for When (Today, Soon, Later) ---
+  void _showWhenChooser(
+    BuildContext context,
+    ThoughtProvider provider,
+    Map<String, dynamic> idea,
+    AppColors colors,
+    SettingsService settings,
+  ) {
+    final currentWhen = idea['when_val'] as String? ?? 'Soon';
+    final options = ['Today', 'Soon', 'Later'];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        decoration: BoxDecoration(
+          color: colors.bg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(color: colors.line),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 8, bottom: 12),
+              child: Text(
+                'When is this due?',
+                style: appFont(
+                  color: colors.gold,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
+            for (final opt in options)
+              SizedBox(
+                height: 52,
+                child: InkWell(
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (opt == currentWhen) return;
+                    await DatabaseHelper.instance
+                        .updateThoughtRanking(idea['id'], whenVal: opt);
+                    await provider.loadThoughts();
+                    _showUndoSnackBar('When set to $opt', () async {
+                      await DatabaseHelper.instance.updateThoughtRanking(
+                          idea['id'],
+                          whenVal: currentWhen);
+                      await provider.loadThoughts();
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          opt,
+                          style: appFont(
+                            color:
+                                opt == currentWhen ? colors.gold : colors.text,
+                            fontSize: 16,
+                            fontWeight: opt == currentWhen
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        if (opt == currentWhen)
+                          Icon(Icons.check, color: colors.gold, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Small Chooser for Time (Quick, Medium, Long) ---
+  void _showTimeChooser(
+    BuildContext context,
+    ThoughtProvider provider,
+    Map<String, dynamic> idea,
+    AppColors colors,
+    SettingsService settings,
+  ) {
+    final currentTime = idea['time_val'] as String? ?? 'Medium';
+    final options = ['Quick', 'Medium', 'Long'];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        decoration: BoxDecoration(
+          color: colors.bg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(color: colors.line),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 8, bottom: 12),
+              child: Text(
+                'How much time does it take?',
+                style: appFont(
+                  color: colors.gold,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            for (final opt in options)
+              SizedBox(
+                height: 52,
+                child: InkWell(
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (opt == currentTime) return;
+                    await DatabaseHelper.instance
+                        .updateThoughtRanking(idea['id'], timeVal: opt);
+                    await provider.loadThoughts();
+                    _showUndoSnackBar('Time set to $opt', () async {
+                      await DatabaseHelper.instance.updateThoughtRanking(
+                          idea['id'],
+                          timeVal: currentTime);
+                      await provider.loadThoughts();
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          opt,
+                          style: appFont(
+                            color:
+                                opt == currentTime ? colors.gold : colors.text,
+                            fontSize: 16,
+                            fontWeight: opt == currentTime
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        if (opt == currentTime)
+                          Icon(Icons.check, color: colors.gold, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -3756,6 +4085,8 @@ class _StreamScreenState extends State<StreamScreen> {
     final bucket = (idea['bucket'] as String?)?.trim() ?? 'Unsorted';
     final thoughtId = idea['thought_id'] as String? ?? 'LOG';
     final content = idea['content'] as String? ?? '';
+    final whenVal = idea['when_val'] as String? ?? 'Soon';
+    final timeVal = idea['time_val'] as String? ?? 'Medium';
 
     Widget buildPopupContent(BuildContext ctx) {
       return Container(
@@ -3790,7 +4121,7 @@ class _StreamScreenState extends State<StreamScreen> {
             ),
             const SizedBox(height: 6),
 
-            // Subtitle row: timestamp, capture icon, bucket, small LOG id
+            // Subtitle row: timestamp, capture icon, bucket, small LOG id, When & Time
             Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 8,
@@ -3825,6 +4156,14 @@ class _StreamScreenState extends State<StreamScreen> {
                   thoughtId,
                   style: appFont(
                     color: colors.mute.withValues(alpha: 0.7),
+                    fontSize: 11,
+                  ),
+                ),
+                Text('•', style: appFont(color: colors.mute, fontSize: 12)),
+                Text(
+                  'When: $whenVal · Time: $timeVal',
+                  style: appFont(
+                    color: colors.mute,
                     fontSize: 11,
                   ),
                 ),
@@ -4266,6 +4605,308 @@ class _CappedTextState extends State<_CappedText> {
 }
 
 // ============================================================================
+// COMPONENT: SORTED IDEA CARD (Shared card for Sorted: Start here & buckets)
+// Height: 220px desktop, 200px phone. Never changes shape.
+// Header: "Start here" label (if active), bucket chip, idea name, timestamp.
+// Body: 3 lines of text cut with ellipsis.
+// Slot: Reserved "Read more" slot (always same height, shown only when cut).
+// Reason: "Quick to finish · due soon" / RankingEngine reason line.
+// Bottom: ONE row with full-width "Mark done" + 48px ⋯ button.
+// ============================================================================
+class SortedIdeaCard extends StatelessWidget {
+  final Map<String, dynamic> idea;
+  final AppColors colors;
+  final ThoughtProvider provider;
+  final SettingsService settings;
+  final bool isStartHere;
+  final bool isDesktop;
+  final VoidCallback onReadMore;
+  final VoidCallback onMoreOptions;
+  final VoidCallback onMarkDone;
+
+  const SortedIdeaCard({
+    super.key,
+    required this.idea,
+    required this.colors,
+    required this.provider,
+    required this.settings,
+    this.isStartHere = false,
+    required this.isDesktop,
+    required this.onReadMore,
+    required this.onMoreOptions,
+    required this.onMarkDone,
+  });
+
+  bool _isCut(String text, double maxWidth, TextStyle style) {
+    if (text.isEmpty) return false;
+    final lines = text.split('\n');
+    if (lines.length > 3 || text.length > 150) return true;
+    final span = TextSpan(text: text, style: style);
+    final tp = TextPainter(
+      text: span,
+      maxLines: 3,
+      textDirection: TextDirection.ltr,
+    );
+    tp.layout(maxWidth: maxWidth > 0 ? maxWidth : 300);
+    return tp.didExceedMaxLines;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ideaName = TitleGenerator.getIdeaName(idea);
+    final timestamp =
+        IdeaFormatters.formatReadableTimestamp(idea['created_at'] as int?);
+    final captureIcon =
+        IdeaFormatters.getCaptureIcon(idea['audio_path'] ?? idea['type']);
+    final bucketName = (idea['bucket'] as String?)?.trim() ?? 'General';
+    final iconKey = provider.getBucketIcon(bucketName);
+    final iconData = kBucketIcons[iconKey] ?? Icons.folder_outlined;
+    final reason = RankingEngine.getReason(idea);
+    final content = idea['content'] as String? ?? '';
+
+    final fixedHeight = isDesktop ? 220.0 : 200.0;
+    final textStyle = appFont(
+      color: colors.text,
+      fontSize: 14,
+      height: 1.3,
+    );
+
+    return SizedBox(
+      height: fixedHeight,
+      child: GestureDetector(
+        onLongPress: onMoreOptions,
+        onSecondaryTap: onMoreOptions,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isStartHere ? colors.gold : colors.line,
+              width: isStartHere ? 1.8 : 1.2,
+            ),
+            boxShadow: isStartHere
+                ? [
+                    BoxShadow(
+                      color: colors.gold.withValues(alpha: 0.08),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : null,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isCut = _isCut(content, constraints.maxWidth, textStyle);
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header row: "Start here" label, idea name, timestamp, and bucket chip
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                if (isStartHere) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: colors.gold,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '★ Start here',
+                                      style: appFont(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    ideaName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: appFont(
+                                      color: colors.gold,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                if (captureIcon != null) ...[
+                                  Icon(captureIcon, size: 12, color: colors.mute),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  timestamp,
+                                  style: appFont(color: colors.mute, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Bucket chip
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: colors.goldBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: colors.gold.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(iconData, size: 12, color: colors.gold),
+                            const SizedBox(width: 4),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 100),
+                              child: Text(
+                                bucketName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: appFont(
+                                  color: colors.gold,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // 3 lines of text cut with ellipsis
+                  Expanded(
+                    child: Text(
+                      content,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: textStyle,
+                    ),
+                  ),
+
+                  // Reserved Read more slot (always 18px height)
+                  SizedBox(
+                    height: 18,
+                    child: isCut
+                        ? Align(
+                            alignment: Alignment.centerLeft,
+                            child: InkWell(
+                              onTap: onReadMore,
+                              borderRadius: BorderRadius.circular(4),
+                              child: Text(
+                                'Read more',
+                                style: appFont(
+                                  color: colors.gold,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Plain reason line ("Quick to finish · due soon")
+                  Text(
+                    reason,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: appFont(
+                      color: colors.mute,
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // ONE row: full-width "Mark done" button and a 48px ⋯ button
+                  SizedBox(
+                    height: 40,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 40,
+                            child: ElevatedButton.icon(
+                              onPressed: onMarkDone,
+                              icon: const Icon(Icons.check_circle_outline,
+                                  size: 18),
+                              label: Text(
+                                'Mark done',
+                                style: appFont(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: colors.done,
+                                foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 48,
+                          height: 40,
+                          child: OutlinedButton(
+                            onPressed: onMoreOptions,
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: colors.line),
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: Icon(Icons.more_horiz,
+                                color: colors.mute, size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
 // COMPONENT: FIXED-SIZE IDEA CARD (Unsorted & Sorted bucket lists)
 // Height: 220px desktop, 200px phone. Same height for short or long ideas.
 // Inside: Header (name, timestamp, capture icon), 4-line text area with ellipsis,
@@ -4615,5 +5256,594 @@ class _Floating3DTrashButtonState extends State<_Floating3DTrashButton> {
         ),
       ),
     );
+  }
+}
+
+// ============================================================================
+// COMPONENT: BUCKET FILTER & SORT SHEET
+// ============================================================================
+class _BucketFilterContent extends StatefulWidget {
+  final List<Map<String, dynamic>> allIdeas;
+  final String searchQuery;
+  final String initialDate;
+  final int? initialMonth;
+  final int? initialYear;
+  final bool initialDateUnknown;
+  final String initialSort;
+  final String initialWhen;
+  final String initialTime;
+  final AppColors colors;
+  final void Function({
+    required String date,
+    required int? month,
+    required int? year,
+    required bool dateUnknown,
+    required String sort,
+    required String when,
+    required String time,
+  }) onApply;
+
+  const _BucketFilterContent({
+    required this.allIdeas,
+    required this.searchQuery,
+    required this.initialDate,
+    required this.initialMonth,
+    required this.initialYear,
+    required this.initialDateUnknown,
+    required this.initialSort,
+    required this.initialWhen,
+    required this.initialTime,
+    required this.colors,
+    required this.onApply,
+  });
+
+  @override
+  State<_BucketFilterContent> createState() => _BucketFilterContentState();
+}
+
+class _BucketFilterContentState extends State<_BucketFilterContent> {
+  late String _date;
+  late int? _month;
+  late int? _year;
+  late bool _dateUnknown;
+  late String _sort;
+  late String _when;
+  late String _time;
+
+  late final int _unknownCount;
+  late final Map<int, Set<int>> _yearMonths;
+  late final Map<String, int> _monthCounts;
+  late final List<int> _years;
+
+  @override
+  void initState() {
+    super.initState();
+    _date = widget.initialDate;
+    _month = widget.initialMonth;
+    _year = widget.initialYear;
+    _dateUnknown = widget.initialDateUnknown;
+    _sort = widget.initialSort;
+    _when = widget.initialWhen;
+    _time = widget.initialTime;
+
+    int unknown = 0;
+    final ym = <int, Set<int>>{};
+    final mc = <String, int>{};
+
+    for (final idea in widget.allIdeas) {
+      if (_StreamScreenState._isPlaceholderIdea(idea)) {
+        unknown++;
+      } else {
+        final dt = DateTime.fromMillisecondsSinceEpoch(
+                (idea['created_at'] as num).toInt())
+            .toLocal();
+        final y = dt.year;
+        final m = dt.month;
+        ym.putIfAbsent(y, () => {}).add(m);
+        final key = '$y-$m';
+        mc[key] = (mc[key] ?? 0) + 1;
+      }
+    }
+
+    _unknownCount = unknown;
+    _yearMonths = ym;
+    _monthCounts = mc;
+    _years = ym.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    if (_year == null && _years.isNotEmpty) {
+      _year = _years.first;
+    }
+  }
+
+  Widget _buildChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final colors = widget.colors;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => onTap(),
+      selectedColor: colors.gold,
+      backgroundColor: colors.bg,
+      labelStyle: appFont(
+        color: isSelected ? Colors.black : colors.text,
+        fontSize: 13,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: isSelected ? colors.gold : colors.line,
+        ),
+      ),
+      showCheckmark: false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = widget.colors;
+
+    final matchingIdeas = _StreamScreenState._applyBucketFilters(
+      allIdeas: widget.allIdeas,
+      searchQuery: widget.searchQuery,
+      date: _date,
+      month: _month,
+      year: _year,
+      dateUnknown: _dateUnknown,
+      sort: _sort,
+      when: _when,
+      time: _time,
+    );
+    final int matchingCount = matchingIdeas.length;
+
+    final monthsInYear = (_year != null && _yearMonths.containsKey(_year))
+        ? (_yearMonths[_year]!.toList()..sort((a, b) => b.compareTo(a)))
+        : <int>[];
+
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filter & sort',
+                  style: appFont(
+                    color: colors.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: colors.mute, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+          Divider(color: colors.line, height: 1),
+
+          // Scrollable filter options
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 1. Date Added
+                  Text(
+                    'Date added',
+                    style: appFont(
+                      color: colors.gold,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildChip(
+                        label: 'All time',
+                        isSelected: _date == 'All time',
+                        onTap: () {
+                          setState(() {
+                            _date = 'All time';
+                            _dateUnknown = false;
+                            _month = null;
+                          });
+                        },
+                      ),
+                      _buildChip(
+                        label: 'This week',
+                        isSelected: _date == 'This week',
+                        onTap: () {
+                          setState(() {
+                            _date = 'This week';
+                            _dateUnknown = false;
+                            _month = null;
+                          });
+                        },
+                      ),
+                      _buildChip(
+                        label: 'This month',
+                        isSelected: _date == 'This month',
+                        onTap: () {
+                          setState(() {
+                            _date = 'This month';
+                            _dateUnknown = false;
+                            _month = null;
+                          });
+                        },
+                      ),
+                      _buildChip(
+                        label: 'Last month',
+                        isSelected: _date == 'Last month',
+                        onTap: () {
+                          setState(() {
+                            _date = 'Last month';
+                            _dateUnknown = false;
+                            _month = null;
+                          });
+                        },
+                      ),
+                      _buildChip(
+                        label: 'This year',
+                        isSelected: _date == 'This year',
+                        onTap: () {
+                          setState(() {
+                            _date = 'This year';
+                            _dateUnknown = false;
+                            _month = null;
+                          });
+                        },
+                      ),
+                      _buildChip(
+                        label: 'Pick a month',
+                        isSelected: _date == 'Pick a month',
+                        onTap: () {
+                          setState(() {
+                            _date = 'Pick a month';
+                            if (_year == null && _years.isNotEmpty) {
+                              _year = _years.first;
+                            }
+                            if (_month == null &&
+                                _year != null &&
+                                _yearMonths.containsKey(_year) &&
+                                _yearMonths[_year]!.isNotEmpty) {
+                              _month = _yearMonths[_year]!.reduce(math.max);
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // "Pick a month" sub-selector
+                  if (_date == 'Pick a month') ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: colors.bg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.line),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_years.isNotEmpty) ...[
+                            Text(
+                              'Year:',
+                              style: appFont(
+                                color: colors.mute,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _years.map((y) {
+                                return _buildChip(
+                                  label: '$y',
+                                  isSelected: (_year == y),
+                                  onTap: () {
+                                    setState(() {
+                                      _year = y;
+                                      _dateUnknown = false;
+                                      final ym = _yearMonths[y];
+                                      if (ym != null &&
+                                          (_month == null ||
+                                              !ym.contains(_month))) {
+                                        _month = ym.reduce(math.max);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          Text(
+                            'Months with ideas:',
+                            style: appFont(
+                              color: colors.mute,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ...monthsInYear.map((m) {
+                                final count =
+                                    _monthCounts['$_year-$m'] ?? 0;
+                                final label =
+                                    '${_StreamScreenState._kMonthNames[m - 1]} $_year ($count)';
+                                final isSelected =
+                                    (!_dateUnknown && _month == m);
+                                return _buildChip(
+                                  label: label,
+                                  isSelected: isSelected,
+                                  onTap: () {
+                                    setState(() {
+                                      _month = m;
+                                      _dateUnknown = false;
+                                    });
+                                  },
+                                );
+                              }),
+                              if (_unknownCount > 0)
+                                _buildChip(
+                                  label: 'Date unknown ($_unknownCount)',
+                                  isSelected: _dateUnknown,
+                                  onTap: () {
+                                    setState(() {
+                                      _dateUnknown = true;
+                                      _month = null;
+                                    });
+                                  },
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // 2. Sort by
+                  Text(
+                    'Sort by',
+                    style: appFont(
+                      color: colors.gold,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildChip(
+                        label: 'Best first',
+                        isSelected: _sort == 'Best first',
+                        onTap: () => setState(() => _sort = 'Best first'),
+                      ),
+                      _buildChip(
+                        label: 'Newest first',
+                        isSelected: _sort == 'Newest first',
+                        onTap: () => setState(() => _sort = 'Newest first'),
+                      ),
+                      _buildChip(
+                        label: 'Oldest first',
+                        isSelected: _sort == 'Oldest first',
+                        onTap: () => setState(() => _sort = 'Oldest first'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 3. When
+                  Text(
+                    'When',
+                    style: appFont(
+                      color: colors.gold,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildChip(
+                        label: 'Any',
+                        isSelected: _when == 'Any',
+                        onTap: () => setState(() => _when = 'Any'),
+                      ),
+                      _buildChip(
+                        label: 'Today',
+                        isSelected: _when == 'Today',
+                        onTap: () => setState(() => _when = 'Today'),
+                      ),
+                      _buildChip(
+                        label: 'Soon',
+                        isSelected: _when == 'Soon',
+                        onTap: () => setState(() => _when = 'Soon'),
+                      ),
+                      _buildChip(
+                        label: 'Later',
+                        isSelected: _when == 'Later',
+                        onTap: () => setState(() => _when = 'Later'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 4. Time
+                  Text(
+                    'Time',
+                    style: appFont(
+                      color: colors.gold,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildChip(
+                        label: 'Any',
+                        isSelected: _time == 'Any',
+                        onTap: () => setState(() => _time = 'Any'),
+                      ),
+                      _buildChip(
+                        label: 'Quick',
+                        isSelected: _time == 'Quick',
+                        onTap: () => setState(() => _time = 'Quick'),
+                      ),
+                      _buildChip(
+                        label: 'Medium',
+                        isSelected: _time == 'Medium',
+                        onTap: () => setState(() => _time = 'Medium'),
+                      ),
+                      _buildChip(
+                        label: 'Long',
+                        isSelected: _time == 'Long',
+                        onTap: () => setState(() => _time = 'Long'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          Divider(color: colors.line, height: 1),
+
+          // Live button "Show N ideas" & "Clear all"
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _date = 'All time';
+                      _month = null;
+                      _year = _years.isNotEmpty ? _years.first : null;
+                      _dateUnknown = false;
+                      _sort = 'Best first';
+                      _when = 'Any';
+                      _time = 'Any';
+                    });
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.mute,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                  ),
+                  child: Text(
+                    'Clear all',
+                    style: appFont(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        widget.onApply(
+                          date: _date,
+                          month: _month,
+                          year: _year,
+                          dateUnknown: _dateUnknown,
+                          sort: _sort,
+                          when: _when,
+                          time: _time,
+                        );
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colors.gold,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Show $matchingCount ${matchingCount == 1 ? 'idea' : 'ideas'}',
+                        style: appFont(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// TEST HELPER
+// ============================================================================
+@visibleForTesting
+class StreamScreenTestHelper {
+  static List<Map<String, dynamic>> applyBucketFilters({
+    required List<Map<String, dynamic>> allIdeas,
+    required String searchQuery,
+    required String date,
+    required int? month,
+    required int? year,
+    required bool dateUnknown,
+    required String sort,
+    required String when,
+    required String time,
+  }) {
+    return _StreamScreenState._applyBucketFilters(
+      allIdeas: allIdeas,
+      searchQuery: searchQuery,
+      date: date,
+      month: month,
+      year: year,
+      dateUnknown: dateUnknown,
+      sort: sort,
+      when: when,
+      time: time,
+    );
+  }
+
+  static bool isPlaceholder(Map<String, dynamic> idea) {
+    return _StreamScreenState._isPlaceholderIdea(idea);
   }
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -197,67 +198,88 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final settings = context.watch<SettingsService>();
     final colors = AppColors.of(settings.theme);
     final currentIndex = nav.mainTabIndex;
+    final bool isBucketOpen = (currentIndex == 1 && nav.streamSubTab == 'sorted' && nav.selectedBucket != null);
 
     final pages = [
       const CaptureScreen(),
       const StreamScreen(),
     ];
 
-    return Scaffold(
-      backgroundColor: colors.bg,
-      appBar: AppBar(
-        title: Text(
-          'BRAIN DUMP',
-          style: TextStyle(
-            color: colors.gold,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 4,
-            fontSize: 17,
-          ),
-        ),
-        centerTitle: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (nav.selectedBucket != null) {
+          nav.selectBucket(null);
+          return;
+        }
+        if (nav.isTrashOpen) {
+          nav.closeTrash();
+          return;
+        }
+        if (!kIsWeb && Platform.isAndroid) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
         backgroundColor: colors.bg,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.settings_outlined, color: colors.mute),
-            tooltip: 'Settings: connect Groq',
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => const SettingsModal(),
-              );
-            },
-          ),
-        ],
-      ),
-      body: pages[currentIndex],
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: colors.line, width: 2)),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: currentIndex,
-          onTap: (index) => context.read<NavigationNotifier>().setMainTab(index),
-          backgroundColor: colors.card,
-          selectedItemColor: colors.gold,
-          unselectedItemColor: colors.mute,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.mic_outlined, size: 26),
-              activeIcon: Icon(Icons.mic, size: 26),
-              label: 'Capture',
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: Text(
+            'BRAIN DUMP',
+            style: TextStyle(
+              color: colors.gold,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 4,
+              fontSize: 17,
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.auto_awesome_outlined, size: 26),
-              activeIcon: Icon(Icons.auto_awesome, size: 26),
-              label: 'Stream',
+          ),
+          centerTitle: true,
+          backgroundColor: colors.bg,
+          elevation: 0,
+          actions: [
+            IconButton(
+              icon: Icon(Icons.settings_outlined, color: colors.mute),
+              tooltip: 'Settings: connect Groq',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const SettingsModal(),
+                );
+              },
             ),
           ],
+        ),
+        body: pages[currentIndex],
+        bottomNavigationBar: isBucketOpen
+            ? null
+            : Container(
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: colors.line, width: 2)),
+                ),
+                child: BottomNavigationBar(
+            currentIndex: currentIndex,
+            onTap: (index) => context.read<NavigationNotifier>().setMainTab(index),
+            backgroundColor: colors.card,
+            selectedItemColor: colors.gold,
+            unselectedItemColor: colors.mute,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.mic_outlined, size: 26),
+                activeIcon: Icon(Icons.mic, size: 26),
+                label: 'Capture',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.auto_awesome_outlined, size: 26),
+                activeIcon: Icon(Icons.auto_awesome, size: 26),
+                label: 'Stream',
+              ),
+            ],
+          ),
         ),
       ),
     );

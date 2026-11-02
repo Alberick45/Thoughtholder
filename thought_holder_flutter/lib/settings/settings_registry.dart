@@ -16,6 +16,7 @@ import '../notifications_settings_screen.dart';
 import '../connect_groq_modal.dart';
 import '../starter_buckets_screen.dart';
 import 'settings_widgets.dart';
+import 'create_bucket_sheet.dart';
 
 /// Single item representing a configurable setting.
 class SettingEntry {
@@ -267,6 +268,66 @@ class SettingsRegistry {
                         const SizedBox(height: 2),
                         Text(
                           'Review and merge ideas with identical text',
+                          style: appFont(color: colors.mute, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: colors.mute, size: 20),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+      SettingEntry(
+        id: 'make_new_bucket',
+        title: 'Make a new bucket',
+        description: 'Create a custom bucket with a name and icon',
+        group: 'Ideas and buckets',
+        keywords: [
+          'make',
+          'new',
+          'bucket',
+          'create',
+          'custom',
+          'add bucket',
+          'name',
+          'icon'
+        ],
+        builder: (context, settings, colors) {
+          final thoughtProvider = context.watch<ThoughtProvider>();
+          return InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () =>
+                showCreateBucketSheet(context, thoughtProvider, colors),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 52),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: colors.bg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.line),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.add_circle_outline, color: colors.gold, size: 22),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Make a new bucket',
+                          style: appFont(
+                              color: colors.text,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Create a custom bucket with a name and icon',
                           style: appFont(color: colors.mute, fontSize: 13),
                         ),
                       ],
