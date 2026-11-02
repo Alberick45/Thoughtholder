@@ -33,6 +33,7 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
 
   final GoogleDriveService _driveService = GoogleDriveService();
   bool _isSignedIn = false;
+  // ignore: unused_field
   bool _isSyncing = false;
 
   @override
@@ -103,6 +104,7 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _handleSync() async {
     setState(() {
       _isSyncing = true;
@@ -332,23 +334,14 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
                     width: double.infinity,
                     height: 44,
                     child: OutlinedButton.icon(
-                      onPressed: _isSyncing ? null : _handleSync,
-                      icon: _isSyncing
-                          ? SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: colors.gold,
-                              ),
-                            )
-                          : Icon(Icons.sync, size: 18, color: colors.gold),
+                      onPressed: null,
+                      icon: Icon(Icons.sync_disabled, size: 18, color: colors.mute),
                       label: Text(
-                        _isSyncing ? 'Syncing…' : 'Force sync now',
-                        style: appFont(color: colors.gold, fontWeight: FontWeight.bold),
+                        'Sync is being updated.',
+                        style: appFont(color: colors.mute, fontWeight: FontWeight.bold),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: colors.gold),
+                        side: BorderSide(color: colors.line),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
