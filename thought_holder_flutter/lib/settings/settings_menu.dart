@@ -13,6 +13,7 @@ import 'sounds_group.dart';
 import 'notifications_group.dart';
 import 'devices_group.dart';
 import 'computer_group.dart';
+import 'diagnostics_screen.dart';
 import 'settings_registry.dart';
 
 class SettingsMenuScreen extends StatefulWidget {
@@ -419,6 +420,21 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
             },
           ),
         ],
+
+        // 8. Diagnostics
+        const SizedBox(height: 10),
+        _buildMenuRow(
+          icon: Icons.health_and_safety_outlined,
+          title: 'Diagnostics',
+          summary: 'Database health, backups, and self-checks',
+          colors: colors,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+            );
+          },
+        ),
         const SizedBox(height: 16),
       ],
     );

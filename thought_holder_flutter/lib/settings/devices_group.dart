@@ -8,6 +8,7 @@ import '../paired_devices_screen.dart';
 import 'group_page_scaffold.dart';
 import 'settings_state.dart';
 import 'settings_widgets.dart';
+import 'diagnostics_screen.dart';
 
 class DevicesGroupScreen extends StatelessWidget {
   const DevicesGroupScreen({super.key});
@@ -228,6 +229,55 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
                       const SizedBox(height: 2),
                       Text(
                         '$pairedCount trusted device${pairedCount == 1 ? '' : 's'}',
+                        style: appFont(color: colors.mute, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: colors.mute, size: 22),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        // 3. Diagnostics & backups
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+            );
+          },
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colors.bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.health_and_safety_outlined, color: colors.gold, size: 22),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Diagnostics & health',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Self-checks, database health, and safety backups',
                         style: appFont(color: colors.mute, fontSize: 13),
                       ),
                     ],

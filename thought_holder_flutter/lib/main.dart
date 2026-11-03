@@ -26,9 +26,13 @@ import 'background_recording_service.dart';
 import 'notification_service.dart';
 import 'sound_service.dart';
 import 'starter_buckets_screen.dart';
+import 'utils/global_error_handler.dart';
+import 'services/self_check_service.dart';
+import 'settings/diagnostics_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  GlobalErrorHandler.init();
 
   // Initialize SQLite FFI for Desktop platforms (Windows / Linux)
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
@@ -89,6 +93,7 @@ class ThoughtHolderApp extends StatelessWidget {
 
     return MaterialApp(
       title: 'ThoughtHolder',
+      scaffoldMessengerKey: GlobalErrorHandler.messengerKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: colors.brightness,
@@ -164,6 +169,64 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           }
         }
       }
+
+      // Startup self-check: fast, non-blocking, completely silent when everything is fine
+      Future.delayed(const Duration(milliseconds: 300), () async {
+        if (!mounted) return;
+        try {
+          final report = await SelfCheckService.instance.runSelfCheck();
+          if (report.hasIssues && mounted) {
+            final critical = report.overallStatus == CheckStatus.red;
+            final issue = report.items.firstWhere(
+              (i) => i.status == CheckStatus.red,
+              orElse: () => report.items.firstWhere(
+                (i) => i.status == CheckStatus.amber,
+                orElse: () => report.items.first,
+              ),
+            );
+
+            GlobalErrorHandler.messengerKey.currentState?.showSnackBar(
+              SnackBar(
+                duration: const Duration(seconds: 8),
+                behavior: SnackBarBehavior.floating,
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      issue.summary,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text('Your ideas are completely safe.'),
+                  ],
+                ),
+                action: SnackBarAction(
+                  label: critical ? 'Restore' : 'Fix it',
+                  textColor: const Color(0xFFFFD54F),
+                  onPressed: () async {
+                    if (critical) {
+                      if (!mounted) return;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+                      );
+                    } else {
+                      final res = await SelfCheckService.instance.performSafeSelfRepair();
+                      GlobalErrorHandler.messengerKey.currentState?.showSnackBar(
+                        SnackBar(
+                          content: Text(res.message),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ),
+            );
+          }
+        } catch (_) {}
+      });
     });
 
     if (!kIsWeb && Platform.isAndroid) {

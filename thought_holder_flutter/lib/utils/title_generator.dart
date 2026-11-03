@@ -4,12 +4,12 @@ import 'package:http/http.dart' as http;
 
 class TitleGenerator {
   static final RegExp _leadingFillerRegex = RegExp(
-    r'^(you\s+know|i\s+mean|eh|um|uh|okay|ok|so|well|like|yeah|hmm)\b[,.\s—–-]*',
+    r'^(you\s+know|i\s+mean|eh|um|uh|okay|ok|so|well|like|yeah|hmm)\b[-—–,.\s]*',
     caseSensitive: false,
   );
 
   static final RegExp _trailingPunctuationRegex = RegExp(
-    r'[,.\s—–:;!?-…]+$',
+    r'[-—–,.\s:;!?…]+$',
   );
 
   /// Generates a concise title from the idea's content following strict auto-name rules.
@@ -31,7 +31,7 @@ class TitleGenerator {
     }
 
     // Strip any leading punctuation left after filler removal
-    text = text.replaceAll(RegExp(r'^[,.\s—–:;!?-…]+'), '').trim();
+    text = text.replaceAll(RegExp(r'^[-—–,.\s:;!?…]+'), '').trim();
 
     if (text.isEmpty) {
       return 'Quick note';

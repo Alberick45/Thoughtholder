@@ -26,6 +26,31 @@ class DatabaseHelper {
     return _database!;
   }
 
+  /// Returns the resolved absolute file path of the database.
+  Future<String> getDatabasePath([String filePath = 'thoughts.db']) async {
+    if (!kIsWeb && Platform.isWindows) {
+      final appSupportDir = await getApplicationSupportDirectory();
+      final targetDir = Directory(join(appSupportDir.path, 'databases'));
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+      return join(targetDir.path, filePath);
+    } else {
+      final dbPath = await getDatabasesPath();
+      return join(dbPath, filePath);
+    }
+  }
+
+  /// Closes the active database connection safely and resets the handle.
+  Future<void> close() async {
+    if (_database != null) {
+      if (_database!.isOpen) {
+        await _database!.close();
+      }
+      _database = null;
+    }
+  }
+
   Future<Database> _initDB(String filePath) async {
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
       sqfliteFfiInit();
