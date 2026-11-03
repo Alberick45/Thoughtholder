@@ -23,6 +23,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   bool _isBackingUp = false;
   bool _isRepairing = false;
   bool _isRestoring = false;
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -138,6 +139,42 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
+
+  Future<void> _handleSaveCopyOutside() async {
+    setState(() => _isExporting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final exportedFile = await BackupService.instance.exportBackupToExternalFolder();
+      final size = await exportedFile.length();
+      final formattedSize = size < 1024 * 1024
+          ? '${(size / 1024).toStringAsFixed(1)} KB'
+          : '${(size / (1024 * 1024)).toStringAsFixed(2)} MB';
+
+      if (mounted) {
+        setState(() => _isExporting = false);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Copy saved outside the app to Documents\\ThoughtHolderBackups ($formattedSize).',
+            ),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isExporting = false);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Could not export copy outside the app.'),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -427,6 +464,39 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isExporting ? null : _handleSaveCopyOutside,
+                          icon: _isExporting
+                              ? SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: colors.text,
+                                  ),
+                                )
+                              : Icon(Icons.drive_file_move_outlined, size: 18, color: colors.text),
+                          label: Text(
+                            _isExporting ? 'Saving copy...' : 'Save a copy outside the app',
+                            style: appFont(
+                              color: colors.text,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.line),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            minimumSize: const Size.fromHeight(42),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   _buildBackupsList(colors),
                 ],
               ),

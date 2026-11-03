@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app_logger.dart';
 
@@ -13,20 +14,20 @@ class GlobalErrorHandler {
   /// and a calm, reassuring message is presented so the app never terminates or loses text.
   static void init() {
     FlutterError.onError = (FlutterErrorDetails details) {
-      AppLogger.error(
-        'GlobalErrorHandler',
-        'Handled Flutter framework error: ${details.exceptionAsString()}',
-        details.stack,
-      );
+      if (kDebugMode) {
+        debugPrint('[FlutterError] ${details.exceptionAsString()}\n${details.stack}');
+      } else {
+        AppLogger.error('GlobalErrorHandler', 'Flutter framework error');
+      }
       _notifyUser();
     };
 
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-      AppLogger.error(
-        'GlobalErrorHandler',
-        'Handled asynchronous platform error: ${error.toString()}',
-        stack,
-      );
+      if (kDebugMode) {
+        debugPrint('[PlatformError] $error\n$stack');
+      } else {
+        AppLogger.error('GlobalErrorHandler', 'Platform asynchronous error');
+      }
       _notifyUser();
       return true; // Mark as handled to prevent process termination
     };
@@ -34,8 +35,8 @@ class GlobalErrorHandler {
 
   static void _notifyUser() {
     final now = DateTime.now();
-    // Debounce to at most one notification every 4 seconds
-    if (now.difference(_lastErrorNotification).inSeconds < 4) return;
+    // Throttled to at most once per minute (60 seconds) so user is never spammed
+    if (now.difference(_lastErrorNotification).inSeconds < 60) return;
     _lastErrorNotification = now;
 
     final state = messengerKey.currentState;

@@ -300,6 +300,55 @@ class BackupService {
     AppLogger.info('BackupService', 'Restore completed successfully to $targetPath');
   }
 
+  /// Exports a verified copy of the latest backup to an external directory
+  /// (defaulting to Documents\ThoughtHolderBackups).
+  Future<File> exportBackupToExternalFolder({String? customDestinationDir}) async {
+    final backups = await listBackups();
+    BackupMetadata source;
+    if (backups.isNotEmpty && backups.first.integrityOk) {
+      source = backups.first;
+    } else {
+      source = await createBackup();
+    }
+
+    String targetDirStr = customDestinationDir ?? '';
+    if (targetDirStr.isEmpty) {
+      if (!kIsWeb && Platform.isWindows) {
+        final userProfile = Platform.environment['USERPROFILE'] ?? '';
+        targetDirStr = join(userProfile, 'Documents', 'ThoughtHolderBackups');
+      } else {
+        try {
+          final docsDir = await getApplicationDocumentsDirectory();
+          targetDirStr = join(docsDir.path, 'ThoughtHolderBackups');
+        } catch (_) {
+          targetDirStr = join(Directory.systemTemp.path, 'ThoughtHolderBackups');
+        }
+      }
+    }
+
+    final targetDir = Directory(targetDirStr);
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+
+    final targetPath = join(targetDir.path, source.fileName);
+    final targetFile = await File(source.filePath).copy(targetPath);
+
+    // Verify integrity of the exported copy
+    final checkDb = await openDatabase(targetFile.path, readOnly: true);
+    try {
+      final res = await checkDb.rawQuery('PRAGMA integrity_check');
+      if (res.isEmpty || res.first.values.first != 'ok') {
+        throw Exception('Exported backup copy failed integrity verification.');
+      }
+    } finally {
+      await checkDb.close();
+    }
+
+    AppLogger.info('BackupService', 'Exported verified copy to: $targetPath');
+    return targetFile;
+  }
+
   /// Prunes backups keeping only the [keep] newest files.
   Future<void> _pruneOldBackups(Directory dir, {int keep = 5}) async {
     try {
