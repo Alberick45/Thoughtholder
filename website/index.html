@@ -91,42 +91,15 @@
       padding: 0 20px;
     }
 
-    @media(max-width: 480px) {
-      .wrap {
-        padding: 0 16px;
-      }
-
-      .logo {
-        font-size: .90rem;
-        letter-spacing: .14em;
-        gap: 8px;
-      }
-
-      .logo-icon {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-      }
-
-      .btn {
-        padding: 13px 20px;
-        font-size: .95rem;
-      }
-
-      section {
-        padding: 48px 0;
-      }
-    }
-
     section {
-      padding: 64px 0
+      padding: 64px 0;
     }
 
     nav {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 18px 0
+      padding: 18px 0;
     }
 
     .logo {
@@ -223,49 +196,23 @@
       gap: 12px;
     }
 
-    @media(max-width: 480px) {
-      .cta-row .btn {
-        width: 100%;
-        text-align: center;
-      }
-    }
-
     .stage {
       position: relative;
       border-radius: 32px;
       background: radial-gradient(120% 70% at 50% 100%, #2A2412 0%, var(--surface) 55%);
       border: 1px solid var(--line);
-      height: 560px;
+      height: 540px;
       overflow: hidden;
       display: flex;
       justify-content: center;
       align-items: flex-end;
     }
 
-    @media(max-width: 960px) {
-      .stage {
-        height: 520px;
-      }
-    }
-
-    @media(max-width: 600px) {
-      .stage {
-        height: 470px;
-        border-radius: 24px;
-      }
-    }
-
-    @media(max-width: 380px) {
-      .stage {
-        height: 430px;
-      }
-    }
-
     .phone-frame {
       position: relative;
       z-index: 2;
       height: 92%;
-      max-height: 510px;
+      max-height: 500px;
       aspect-ratio: 460 / 1024;
       max-width: 82%;
       background: #000;
@@ -279,13 +226,6 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-    }
-
-    @media(max-width: 600px) {
-      .phone-frame {
-        border-width: 5px;
-        border-radius: 22px 22px 0 0;
-      }
     }
 
     .phone-screen {
@@ -344,34 +284,6 @@
       animation-delay: 2.1s;
     }
 
-    @media(max-width: 600px) {
-      .chip {
-        font-size: .72rem;
-        padding: 5px 10px;
-        max-width: 155px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .chip:nth-child(1) {
-        top: 12px;
-        left: 10px;
-      }
-
-      .chip:nth-child(2) {
-        top: 12px;
-        right: 10px;
-      }
-
-      .chip:nth-child(3) {
-        display: none;
-      }
-
-      .chip:nth-child(4) {
-        display: none;
-      }
-    }
-
     @keyframes vanish {
       0% {
         opacity: 1;
@@ -384,7 +296,7 @@
 
       100% {
         opacity: 0;
-        transform: translateY(-24px) scale(.96);
+        transform: translateY(-20px) scale(.96);
         filter: blur(4px);
       }
     }
@@ -392,7 +304,7 @@
     @media(prefers-reduced-motion:reduce) {
       .chip {
         animation: none;
-        opacity: .5;
+        opacity: .7;
       }
     }
 
@@ -449,14 +361,6 @@
       }
     }
 
-    @media(max-width: 480px) {
-      .calc {
-        padding: 20px 14px;
-        border-radius: 20px;
-        gap: 20px;
-      }
-    }
-
     label {
       display: block;
       font-weight: 500;
@@ -489,16 +393,6 @@
       font-size: clamp(2.6rem, 10vw, 4.8rem);
       line-height: 1;
       color: var(--gold);
-    }
-
-    @media(max-width: 480px) {
-      .result {
-        padding: 18px 14px;
-        border-radius: 16px;
-      }
-      .big {
-        font-size: clamp(2.2rem, 12vw, 3.6rem);
-      }
     }
 
     .result p {
@@ -603,7 +497,282 @@
       padding: 30px 0 50px;
       color: var(--muted);
       font-size: .88rem;
-      text-align: center
+      text-align: center;
+    }
+
+    /* Tablet breakpoint (<= 860px) */
+    @media(max-width: 860px) {
+      .stage {
+        height: 440px;
+      }
+    }
+
+    /* Mobile breakpoint (<= 600px) */
+    @media(max-width: 600px) {
+      .wrap {
+        padding: 0 16px;
+      }
+
+      nav {
+        padding: 12px 0;
+      }
+
+      .logo {
+        font-size: .88rem;
+        letter-spacing: .12em;
+        gap: 8px;
+      }
+
+      .logo-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+      }
+
+      nav .btn.ghost {
+        padding: 7px 15px;
+        font-size: .80rem;
+      }
+
+      /* Hero section: tight & compact so phone is visible above the fold */
+      .hero {
+        padding: 10px 0 20px;
+        gap: 14px;
+      }
+
+      h1 {
+        font-size: clamp(1.4rem, 5.2vw, 1.8rem);
+        line-height: 1.15;
+      }
+
+      .hero p.lead {
+        font-size: .86rem;
+        line-height: 1.45;
+        margin: 8px 0 12px;
+      }
+
+      .cta-row {
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .cta-row .btn {
+        padding: 10px 14px;
+        font-size: .82rem;
+        flex: 1 1 auto;
+        text-align: center;
+      }
+
+      .hero .small {
+        font-size: .76rem;
+        margin-top: 4px;
+      }
+
+      /* Stage: sized to fit in mobile viewport without filling whole screen */
+      .stage {
+        height: 350px;
+        border-radius: 20px;
+      }
+
+      .phone-frame {
+        border-width: 4px;
+        border-radius: 20px 20px 0 0;
+      }
+
+      .phone-screen {
+        border-radius: 16px 16px 0 0;
+      }
+
+      /* Chips on mobile: ALL 4 SHOWN, FULL TEXT, NO TRUNCATION */
+      .chip {
+        font-size: .68rem;
+        padding: 4px 9px;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
+        background: rgba(34, 33, 38, 0.90);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      }
+
+      .chip:nth-child(1) {
+        top: 10px;
+        left: 8px;
+      }
+
+      .chip:nth-child(2) {
+        top: 42px;
+        right: 8px;
+      }
+
+      .chip:nth-child(3) {
+        top: 76px;
+        left: 8px;
+        display: block;
+      }
+
+      .chip:nth-child(4) {
+        top: 110px;
+        right: 8px;
+        display: block;
+      }
+
+      /* General sections on mobile */
+      section {
+        padding: 32px 0;
+      }
+
+      h2 {
+        font-size: clamp(1.2rem, 4.2vw, 1.5rem);
+        margin-bottom: .45rem;
+      }
+
+      p {
+        font-size: .86rem;
+        line-height: 1.5;
+      }
+
+      .moments {
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .moment {
+        padding: 14px 14px;
+        border-radius: 14px;
+      }
+
+      .moment strong {
+        font-size: .90rem;
+        margin-bottom: 2px;
+      }
+
+      .moment span {
+        font-size: .82rem;
+      }
+
+      .calc {
+        padding: 16px 14px;
+        border-radius: 18px;
+        gap: 14px;
+        margin-top: 16px;
+      }
+
+      label {
+        font-size: .84rem;
+      }
+
+      input[type=range] {
+        margin: 4px 0 10px;
+        height: 22px;
+      }
+
+      .result {
+        padding: 14px 14px;
+        border-radius: 14px;
+      }
+
+      .big {
+        font-size: 2.2rem;
+      }
+
+      .result p {
+        font-size: .84rem;
+      }
+
+      .result ul {
+        margin: 8px 0 10px;
+      }
+
+      .result li {
+        padding: 4px 0;
+        font-size: .80rem;
+      }
+
+      #ctaCalc {
+        padding: 10px 14px;
+        font-size: .84rem;
+        width: 100%;
+        text-align: center;
+      }
+
+      .steps {
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .step {
+        padding: 14px 14px;
+        border-radius: 14px;
+      }
+
+      .step h3 {
+        font-size: .92rem;
+      }
+
+      .safe-grid {
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .safe-item {
+        padding: 14px 16px;
+        border-radius: 14px;
+      }
+
+      .safe-item h3 {
+        font-size: .92rem;
+      }
+
+      .app-icon-badge {
+        width: 58px;
+        height: 58px;
+        border-radius: 16px;
+      }
+
+      .app-badge-wrap {
+        margin: 0 auto 10px;
+      }
+
+      #downloadBtn {
+        width: 100%;
+        text-align: center;
+        padding: 12px 14px;
+        font-size: .84rem;
+      }
+
+      ol.install {
+        font-size: .82rem;
+        margin-top: 8px;
+        padding-left: 1rem;
+      }
+    }
+
+    /* Extra small mobile (<= 380px) */
+    @media(max-width: 380px) {
+      .wrap {
+        padding: 0 12px;
+      }
+
+      h1 {
+        font-size: 1.30rem;
+      }
+
+      .stage {
+        height: 310px;
+        border-radius: 16px;
+      }
+
+      .chip {
+        font-size: .60rem;
+        padding: 3px 6px;
+      }
+
+      .chip:nth-child(1) { top: 6px; left: 6px; }
+      .chip:nth-child(2) { top: 32px; right: 6px; }
+      .chip:nth-child(3) { top: 60px; left: 6px; }
+      .chip:nth-child(4) { top: 88px; right: 6px; }
     }
   </style>
 
