@@ -7,8 +7,9 @@
   <title>Thoughtholder – catch every idea before it disappears</title>
   <meta name="description"
     content="Thoughtholder is a free Android app that captures your ideas by voice or text, straight from your home screen.">
-  <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22%23161618%22 stroke=%22%23E3B71E%22 stroke-width=%228%22/><rect x=%2240%22 y=%2224%22 width=%2220%22 height=%2736%22 rx=%2210%22 fill=%22%23E3B71E%22/></svg>">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;800&display=swap" rel="stylesheet">
@@ -96,8 +97,15 @@
       }
 
       .logo {
-        font-size: .95rem;
-        letter-spacing: .18em;
+        font-size: .90rem;
+        letter-spacing: .14em;
+        gap: 8px;
+      }
+
+      .logo-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
       }
 
       .btn {
@@ -122,11 +130,38 @@
     }
 
     .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
       font-weight: 600;
       font-size: 1.05rem;
-      letter-spacing: .28em;
+      letter-spacing: .24em;
       text-decoration: none;
-      color: var(--gold)
+      color: var(--gold);
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      object-fit: cover;
+      display: block;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .app-badge-wrap {
+      margin: 0 auto 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .app-icon-badge {
+      width: 76px;
+      height: 76px;
+      border-radius: 20px;
+      display: block;
+      box-shadow: 0 0 0 1px rgba(227, 183, 30, 0.3), 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 40px rgba(227, 183, 30, 0.2);
     }
 
     .btn {
@@ -594,7 +629,10 @@
 
   <header class="wrap">
     <nav>
-      <a class="logo" href="#top">THOUGHTHOLDER</a>
+      <a class="logo" href="#top">
+        <img class="logo-icon" src="icon.png" alt="Thoughtholder logo" width="32" height="32">
+        <span>THOUGHTHOLDER</span>
+      </a>
       <a class="btn ghost" href="#download">Download</a>
     </nav>
   </header>
@@ -720,6 +758,9 @@
 
     <section id="download" class="final">
       <div class="wrap">
+        <div class="app-badge-wrap">
+          <img class="app-icon-badge" src="icon.png" alt="Thoughtholder app icon" width="76" height="76">
+        </div>
         <h2>Stop losing good ideas</h2>
         <p>Download Thoughtholder, install it, and capture your first thought.</p>
         <a class="btn" id="downloadBtn"
