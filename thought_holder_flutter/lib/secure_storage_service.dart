@@ -11,6 +11,51 @@ class SecureStorageService {
   );
 
   static const String _keyPrefix = 'th_ble_key_';
+  static const String _groqApiKeyName = 'th_groq_api_key';
+
+  /// Saves the Groq Whisper API key to OS secure storage.
+  static Future<void> saveGroqApiKey(String key) async {
+    try {
+      await _storage.write(key: _groqApiKeyName, value: key.trim());
+    } catch (e) {
+      debugPrint('[SecureStorage] Error saving Groq API key: $e');
+    }
+  }
+
+  /// Retrieves the Groq Whisper API key from OS secure storage.
+  static Future<String?> getGroqApiKey() async {
+    try {
+      return await _storage.read(key: _groqApiKeyName);
+    } catch (e) {
+      debugPrint('[SecureStorage] Error reading Groq API key: $e');
+      return null;
+    }
+  }
+
+  /// Deletes the Groq Whisper API key from OS secure storage.
+  static Future<void> deleteGroqApiKey() async {
+    try {
+      await _storage.delete(key: _groqApiKeyName);
+    } catch (e) {
+      debugPrint('[SecureStorage] Error deleting Groq API key: $e');
+    }
+  }
+
+  /// Self-health test: verifies OS secure storage write, read, and delete cycle.
+  static Future<bool> testSecureStorageHealth() async {
+    const testKey = 'th_health_check_nonce';
+    final testVal = 'nonce_${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      await _storage.write(key: testKey, value: testVal);
+      final readVal = await _storage.read(key: testKey);
+      await _storage.delete(key: testKey);
+      final afterDelete = await _storage.read(key: testKey);
+      return readVal == testVal && (afterDelete == null || afterDelete.isEmpty);
+    } catch (e) {
+      debugPrint('[SecureStorage] Health check failed: $e');
+      return false;
+    }
+  }
 
   /// Saves the symmetric sync key for a paired device.
   static Future<void> saveSharedKey(String peerDeviceId, String sharedKey) async {

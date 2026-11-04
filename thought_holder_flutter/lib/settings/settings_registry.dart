@@ -17,6 +17,7 @@ import '../connect_groq_modal.dart';
 import '../starter_buckets_screen.dart';
 import 'settings_widgets.dart';
 import 'create_bucket_sheet.dart';
+import 'export_ideas_dialog.dart';
 
 /// Single item representing a configurable setting.
 class SettingEntry {
@@ -916,6 +917,56 @@ class SettingsRegistry {
         },
       ),
       SettingEntry(
+        id: 'export_my_ideas',
+        title: 'Export my ideas',
+        description: 'Save a portable .thoughtbundle backup file',
+        group: 'Devices and backup',
+        keywords: ['export', 'bundle', 'thoughtbundle', 'backup', 'file', 'passphrase', 'share'],
+        builder: (context, settings, colors) {
+          return InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (_) => const ExportIdeasDialog(),
+              );
+            },
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: colors.bg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.line),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.file_upload_outlined, color: colors.gold, size: 22),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Export my ideas',
+                          style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Save a portable .thoughtbundle file',
+                          style: appFont(color: colors.mute, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: colors.mute, size: 20),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+      SettingEntry(
         id: 'google_drive_backup',
         title: 'Google Drive',
         description: 'Sync backup database to your personal Google Drive AppData folder',
@@ -1318,6 +1369,24 @@ class _GroqKeyInlineControlState extends State<_GroqKeyInlineControl> {
                 child: Text('Edit key', style: appFont(color: colors.gold, fontWeight: FontWeight.bold, fontSize: 12)),
               ),
             ),
+            if (settings.hasGroqKey) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 36,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    await settings.removeGroqApiKey();
+                    _controller.clear();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFFF8A80)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text('Remove', style: appFont(color: const Color(0xFFFF8A80), fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+              ),
+            ],
           ],
         ),
       );

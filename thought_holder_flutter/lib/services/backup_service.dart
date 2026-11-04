@@ -24,6 +24,8 @@ class BackupMetadata {
     required this.integrityOk,
   });
 
+  File get file => File(filePath);
+
   String get formattedSize {
     if (sizeBytes < 1024) return '$sizeBytes B';
     if (sizeBytes < 1024 * 1024) {
@@ -209,6 +211,7 @@ class BackupService {
     File backupFile, {
     Database? liveDb,
     String? liveDbPath,
+    String? customDirectoryPath,
   }) async {
     if (!await backupFile.exists()) {
       throw Exception('Selected backup file does not exist: ${backupFile.path}');
@@ -216,7 +219,11 @@ class BackupService {
 
     // 1. Safety backup of current live database
     try {
-      await createBackup(db: liveDb, customFileName: 'thought_backup_pre_restore_${DateTime.now().millisecondsSinceEpoch}.db');
+      await createBackup(
+        db: liveDb,
+        customFileName: 'thought_backup_pre_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+        customDirectoryPath: customDirectoryPath,
+      );
     } catch (e) {
       AppLogger.error('BackupService', 'Safety backup prior to restore failed', e);
       throw Exception('Could not create a safety backup before restoring. Restore aborted for safety.');
@@ -360,7 +367,11 @@ class BackupService {
 
       if (files.length <= keep) return;
 
-      files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      files.sort((a, b) {
+        final cmp = b.statSync().modified.compareTo(a.statSync().modified);
+        if (cmp != 0) return cmp;
+        return basename(b.path).compareTo(basename(a.path));
+      });
 
       for (int i = keep; i < files.length; i++) {
         try {

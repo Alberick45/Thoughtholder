@@ -5,10 +5,13 @@ import '../settings_service.dart';
 import '../google_drive_service.dart';
 import '../ble_sync_screen.dart';
 import '../paired_devices_screen.dart';
+import '../services/thought_bundle_service.dart';
 import 'group_page_scaffold.dart';
 import 'settings_state.dart';
 import 'settings_widgets.dart';
 import 'diagnostics_screen.dart';
+import 'export_ideas_dialog.dart';
+import 'import_ideas_dialog.dart';
 
 class DevicesGroupScreen extends StatelessWidget {
   const DevicesGroupScreen({super.key});
@@ -36,11 +39,114 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
   bool _isSignedIn = false;
   // ignore: unused_field
   bool _isSyncing = false;
+  Map<String, dynamic>? _lastImportBackupInfo;
 
   @override
   void initState() {
     super.initState();
     _checkSignInStatus();
+    _checkLastImportBackup();
+  }
+
+  Future<void> _checkLastImportBackup() async {
+    try {
+      final info = await ThoughtBundleService.instance.getLastImportBackupInfo();
+      if (mounted) {
+        setState(() {
+          _lastImportBackupInfo = info;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleUndoImport(AppColors colors) async {
+    if (_lastImportBackupInfo == null) return;
+
+    final ideaCount = _lastImportBackupInfo!['ideaCount'] ?? 0;
+    final timestamp = _lastImportBackupInfo!['timestamp'] as int? ?? 0;
+    final dateStr = timestamp > 0 ? DateTime.fromMillisecondsSinceEpoch(timestamp).toLocal().toString().split('.').first : '';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.bg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: colors.line),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.undo, color: colors.bad, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              'Undo last import?',
+              style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will restore your database to the safety backup created before the import ($ideaCount ideas, saved $dateStr).',
+              style: appFont(color: colors.text, fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Any ideas created or modified after that import will be reverted.',
+              style: appFont(color: colors.mute, fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: appFont(color: colors.mute)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.bad,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Confirm Undo'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await ThoughtBundleService.instance.undoLastImport();
+      await _checkLastImportBackup();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: colors.card,
+            content: Text(
+              'Import undone. Database restored from pre-import backup.',
+              style: appFont(color: colors.text, fontSize: 13),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: colors.bad,
+            content: Text(
+              'Undo failed: $e',
+              style: appFont(color: Colors.white, fontSize: 13),
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _checkSignInStatus() async {
@@ -289,7 +395,152 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
           ),
         ),
 
-        // 3. Collapsible Google Drive (under "Show more options")
+        const SizedBox(height: 10),
+
+        // 4. Export my ideas
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (_) => const ExportIdeasDialog(),
+            );
+          },
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colors.bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.file_upload_outlined, color: colors.gold, size: 22),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Export my ideas',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Save a portable .thoughtbundle file for backup or transfer',
+                        style: appFont(color: colors.mute, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: colors.mute, size: 22),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        // 5. Import ideas from file
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            ImportIdeasFlow.startImport(
+              context,
+              onImportCompleted: _checkLastImportBackup,
+            );
+          },
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colors.bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.file_download_outlined, color: colors.gold, size: 22),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Import ideas from file',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Import or merge ideas from a .thoughtbundle file',
+                        style: appFont(color: colors.mute, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: colors.mute, size: 22),
+              ],
+            ),
+          ),
+        ),
+
+        // 6. Undo this import (visible for 7 days)
+        if (_lastImportBackupInfo != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.bad.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.undo, color: colors.bad, size: 24),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Undo last import',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Safety backup available (${_lastImportBackupInfo!['ideaCount'] ?? 0} ideas). Restores pre-import state.',
+                        style: appFont(color: colors.mute, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _handleUndoImport(colors),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.bad,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  child: const Text('Undo import'),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // 7. Collapsible Google Drive (under "Show more options")
         if (isExpanded) ...[
           const SizedBox(height: 20),
           Divider(color: colors.line, height: 1),

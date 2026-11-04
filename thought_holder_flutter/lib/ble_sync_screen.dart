@@ -5,7 +5,6 @@ import 'package:universal_ble/universal_ble.dart';
 import 'ble_sync_service.dart';
 import 'sender_service.dart';
 import 'receiver_service.dart';
-import 'transfer_progress.dart';
 import 'thought_provider.dart';
 import 'settings_service.dart';
 import 'app_theme.dart';
@@ -31,20 +30,9 @@ class _BleSyncScreenState extends State<BleSyncScreen>
   bool _showSummary = false;
   String? _connectedDeviceName;
 
-  // Legacy Send state (under Advanced)
-  List<BleDevice> _devices = [];
-  BleDevice? _sendingTo;
-  StreamSubscription? _devSub;
-  StreamSubscription? _sendProgressSub;
-  bool _isScanning = false;
-
-  // Legacy Receive state (under Advanced)
-  bool _isReceiving = false;
-  StreamSubscription? _receiveProgressSub;
   StreamSubscription? _syncCompleteSub;
   StreamSubscription? _mergeProgressSub;
 
-  bool _isAdvancedExpanded = false;
 
   @override
   void initState() {
@@ -54,22 +42,6 @@ class _BleSyncScreenState extends State<BleSyncScreen>
     final receiver = context.read<ReceiverService>();
     final settings = context.read<SettingsService>();
     _bleSync = BleSyncService(sender: sender, receiver: receiver, settings: settings);
-
-    _devSub = _bleSync.nearbyDevices.listen((devices) {
-      if (mounted) setState(() => _devices = devices);
-    });
-
-    _sendProgressSub = _bleSync.sendProgress.listen((p) {
-      // Progress event received
-    });
-
-    _receiveProgressSub = _bleSync.receiveProgress.listen((p) {
-      if (mounted && p is TransferProgress) {
-        if (p.status == TransferStatus.failed) {
-          _showSnack('Sync failed: ${p.error ?? 'Unknown error'}');
-        }
-      }
-    });
 
     // 2-Way Merge Progress listener
     _mergeProgressSub = _bleSync.mergeProgress.listen((update) {
@@ -99,13 +71,8 @@ class _BleSyncScreenState extends State<BleSyncScreen>
 
   @override
   void dispose() {
-    _devSub?.cancel();
-    _sendProgressSub?.cancel();
-    _receiveProgressSub?.cancel();
     _syncCompleteSub?.cancel();
     _mergeProgressSub?.cancel();
-    if (_isScanning) _bleSync.stopScan();
-    if (_isReceiving) _bleSync.stopReceiving();
     super.dispose();
   }
 
@@ -212,53 +179,6 @@ class _BleSyncScreenState extends State<BleSyncScreen>
       } else {
         _showSnack('Could not restore previous state.');
       }
-    }
-  }
-
-  // --- Advanced Legacy One-Way Controls ---
-
-  Future<void> _toggleScan() async {
-    if (_isScanning) {
-      await _bleSync.stopScan();
-      setState(() { _isScanning = false; _devices = []; });
-    } else {
-      try {
-        setState(() { _isScanning = true; _devices = []; });
-        await _bleSync.startScan();
-      } catch (e) {
-        setState(() => _isScanning = false);
-        _showSnack('Scan failed: $e');
-      }
-    }
-  }
-
-  Future<void> _toggleReceive() async {
-    if (_isReceiving) {
-      await _bleSync.stopReceiving();
-      setState(() {
-        _isReceiving = false;
-      });
-    } else {
-      try {
-        await _bleSync.startReceiving();
-        setState(() => _isReceiving = true);
-      } catch (e) {
-        _showSnack('Failed to start receiving: $e');
-      }
-    }
-  }
-
-  Future<void> _syncTo(BleDevice device) async {
-    if (_sendingTo != null) return;
-    await _bleSync.stopScan();
-    setState(() { _isScanning = false; _sendingTo = device; });
-    try {
-      await _bleSync.syncTo(device);
-      _showSnack('Ideas copied to ${device.name ?? device.deviceId}!');
-    } catch (e) {
-      _showSnack('Sync failed: $e');
-    } finally {
-      if (mounted) setState(() { _sendingTo = null; });
     }
   }
 
@@ -508,155 +428,6 @@ class _BleSyncScreenState extends State<BleSyncScreen>
                 ),
                 const SizedBox(height: 20),
               ],
-
-              // ──────────────────────────────────────────────────────────────
-              // 4. "ADVANCED" COLLAPSED SECTION (Section 8)
-              // ──────────────────────────────────────────────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: colors.line),
-                ),
-                child: Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    initiallyExpanded: _isAdvancedExpanded,
-                    onExpansionChanged: (exp) => setState(() => _isAdvancedExpanded = exp),
-                    iconColor: colors.gold,
-                    collapsedIconColor: colors.mute,
-                    title: Text(
-                      'Advanced',
-                      style: appFont(
-                        color: colors.text,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'One-way copy modes',
-                      style: appFont(color: colors.mute, fontSize: 12),
-                    ),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              'Copies ideas to the other device. Does not bring back changes.',
-                              style: appFont(color: colors.mute, fontSize: 13, height: 1.4),
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Send Only
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: colors.bg,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: colors.line),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Send only',
-                                        style: appFont(
-                                          color: colors.text,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        height: 48,
-                                        child: ElevatedButton(
-                                          onPressed: _toggleScan,
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: _isScanning ? colors.bad : colors.gold,
-                                            foregroundColor: Colors.black,
-                                          ),
-                                          child: Text(_isScanning ? 'Stop scan' : 'Scan devices'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (_devices.isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    ..._devices.map((d) => ListTile(
-                                          dense: true,
-                                          title: Text(d.name ?? d.deviceId, style: appFont(color: colors.text)),
-                                          trailing: SizedBox(
-                                            height: 48,
-                                            child: ElevatedButton(
-                                              onPressed: () => _syncTo(d),
-                                              style: ElevatedButton.styleFrom(backgroundColor: colors.gold),
-                                              child: const Text('Send'),
-                                            ),
-                                          ),
-                                        )),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Receive Only
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: colors.bg,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: colors.line),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Receive only',
-                                        style: appFont(
-                                          color: colors.text,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      Text(
-                                        _isReceiving ? 'Waiting for sender...' : 'Offline',
-                                        style: appFont(
-                                          color: _isReceiving ? colors.done : colors.mute,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton(
-                                      onPressed: _toggleReceive,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _isReceiving ? colors.bad : colors.gold,
-                                        foregroundColor: Colors.black,
-                                      ),
-                                      child: Text(_isReceiving ? 'Stop receiving' : 'Start receiving'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ],
           ),
         ),

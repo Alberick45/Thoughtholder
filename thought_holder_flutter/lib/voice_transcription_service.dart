@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'settings_service.dart';
+import 'utils/app_logger.dart';
 
 enum TranscriptionEngine {
   whisper,
@@ -253,7 +254,7 @@ class VoiceTranscriptionService {
         engine: TranscriptionEngine.whisper,
       );
     } catch (e) {
-      debugPrint('[VoiceTranscription] Groq upload failed, saving for pending retry: $e');
+      AppLogger.error('VoiceTranscription', 'Groq upload failed, saving for pending retry', e);
       await _savePendingOfflineAudio(recordedFilePath);
       return const TranscriptionResult(
         text: '',
@@ -294,7 +295,7 @@ class VoiceTranscriptionService {
       final text = (data['text'] as String?)?.trim() ?? '';
       return text;
     } else {
-      throw Exception('Groq API Error (${response.statusCode}): ${response.body}');
+      throw Exception('Groq API Error (${response.statusCode}): ${AppLogger.sanitize(response.body)}');
     }
   }
 

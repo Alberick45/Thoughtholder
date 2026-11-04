@@ -198,6 +198,36 @@ class _VoiceGroupContentState extends State<VoiceGroupContent> {
                     ),
                   ),
                 ),
+                if (settings.hasGroqKey) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 36,
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        await settings.removeGroqApiKey();
+                        _apiKeyController.clear();
+                        setState(() {
+                          _groqStatusText = null;
+                        });
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFFF8A80)),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        'Remove key',
+                        style: appFont(
+                          color: const Color(0xFFFF8A80),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           )
@@ -250,6 +280,38 @@ class _VoiceGroupContentState extends State<VoiceGroupContent> {
               ),
             ],
           ),
+
+        if (settings.hasGroqKey) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(
+                settings.isGroqKeyInSecureStorage ? Icons.lock : Icons.lock_open,
+                size: 13,
+                color: settings.isGroqKeyInSecureStorage ? const Color(0xFF5FD282) : colors.bad,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  settings.isGroqKeyInSecureStorage
+                      ? 'Stored securely in OS Credential Vault.'
+                      : 'Not yet in OS secure storage.',
+                  style: appFont(
+                    color: settings.isGroqKeyInSecureStorage ? colors.mute : colors.bad,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (settings.hasLegacyGroqKeyInSettings) ...[
+            const SizedBox(height: 4),
+            Text(
+              'A legacy copy exists in plain settings until you confirm its removal.',
+              style: appFont(color: const Color(0xFFFFD54F), fontSize: 11),
+            ),
+          ],
+        ],
 
         const SizedBox(height: 16),
 

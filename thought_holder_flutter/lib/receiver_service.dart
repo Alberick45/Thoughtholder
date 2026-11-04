@@ -10,6 +10,9 @@ import 'transfer_progress.dart';
 import 'history_model.dart';
 import 'history_service.dart';
 import 'settings_service.dart';
+import 'services/ble_security_guard.dart';
+import 'utils/app_logger.dart';
+
 
 /// Puts this device into "Receive" mode: advertises the PK Share GATT
 /// service and reassembles whatever text or files the sender writes to it.
@@ -33,8 +36,17 @@ class ReceiverService {
   int _bytesReceived = 0;
   String? _activeSender;
 
-  Future<void> start() async {
+  Future<void> start({bool openPairingWindow = false}) async {
     if (_started) return;
+
+    // Requirement 3: Receiver must not advertise unless a pairing window is open (2 min max)
+    if (openPairingWindow && !BleSecurityGuard.instance.isPairingWindowOpen) {
+      BleSecurityGuard.instance.openPairingWindow(duration: const Duration(minutes: 2));
+    }
+
+    if (!BleSecurityGuard.instance.isPairingWindowOpen) {
+      throw "The Bluetooth receiver cannot advertise unless a pairing window is open.";
+    }
 
     if (Platform.isAndroid) {
       final statuses = await [
@@ -83,16 +95,29 @@ class ReceiverService {
       Uint8List? value,
     ) {
       if (characteristicId.toLowerCase() != BleIds.txCharUuid.toLowerCase() || value == null) {
-        return PeripheralWriteRequestResult(status: 0);
+        return PeripheralWriteRequestResult(status: 1);
       }
 
-      _activeSender = deviceId;
+      // Requirement 3: Validate incoming write BEFORE reassembling or allocating memory
+      // Authenticate message by header encryption check (sender id + counter inside header),
+      // never by Bluetooth device address. Reject replayed counters, unknown senders, or oversized payloads.
+      final check = BleSecurityGuard.instance.validateIncomingWrite(
+        packetBytes: value,
+        keyLookup: (senderId) => _settings.getDeviceSharedKey(senderId),
+      );
+
+      if (!check.allowed) {
+        AppLogger.error('ReceiverService', 'Rejected write: ${check.rejectionReason}');
+        return PeripheralWriteRequestResult(status: 1);
+      }
+
+      _activeSender = check.senderId ?? deviceId;
       if (_startTime == null) {
         _startTime = DateTime.now();
         _bytesReceived = 0;
       }
 
-      final complete = _reassembler.add(value);
+      final complete = _reassembler.add(check.payload!);
       if (complete != null) {
         _handleCompletedTransfer(complete);
       }
@@ -182,6 +207,9 @@ class ReceiverService {
     _startTime = null;
     _bytesReceived = 0;
     _activeSender = null;
+
+    // Requirement 3: Window closes on success
+    BleSecurityGuard.instance.closePairingWindow(reason: 'success');
   }
 
   String _resolveUniqueFilePath(String dir, String name) {
@@ -198,6 +226,7 @@ class ReceiverService {
   }
 
   Future<void> stop() async {
+    BleSecurityGuard.instance.closePairingWindow(reason: 'stop');
     if (!_started) return;
     _started = false;
     _startTime = null;

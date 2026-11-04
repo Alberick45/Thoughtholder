@@ -48,7 +48,11 @@ if (Test-Path $liveDbPath) {
         # Copy to temporary location so active database is never locked or modified
         Copy-Item -Path $liveDbPath -Destination $tempCopyPath -Force
 
-        $dbCheckOutput = & py tool/check_db.py $tempCopyPath 2>&1
+        $pythonExe = "py"
+        if (Test-Path "C:\msys64\ucrt64\bin\python3.exe") {
+            $pythonExe = "C:\msys64\ucrt64\bin\python3.exe"
+        }
+        $dbCheckOutput = & $pythonExe tool/check_db.py $tempCopyPath 2>&1
         $dbCheckExit = $LASTEXITCODE
 
         $dbCheckOutput | ForEach-Object {

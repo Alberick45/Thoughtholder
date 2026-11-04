@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thoughtholder – catch every idea before it disappears</title>
+  <meta name="description"
+    content="Thoughtholder is a free Android app that captures your ideas by voice or text, straight from your home screen.">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22%23161618%22 stroke=%22%23E3B71E%22 stroke-width=%228%22/><rect x=%2240%22 y=%2224%22 width=%2220%22 height=%2736%22 rx=%2210%22 fill=%22%23E3B71E%22/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #161618;
+      --surface: #222126;
+      --surface2: #2C2B31;
+      --text: #F4F1E6;
+      --muted: #A3A2AB;
+      --line: #35343B;
+      --gold: #E3B71E;
+      --gold-deep: #B8920F;
+      --gold-soft: #2B2410;
+      --onGold: #161618;
+      --safe: #43D39A;
+      --safe-bg: #0F211A;
+      --safe-card: #15291F;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0
+    }
+
+    html {
+      scroll-behavior: smooth
+    }
+
+    body {
+      font-family: Lexend, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 16.5px
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.12;
+      letter-spacing: -.02em
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 7vw, 4rem);
+      font-weight: 800
+    }
+
+    h2 {
+      font-size: clamp(1.65rem, 4.5vw, 2.4rem);
+      font-weight: 800;
+      margin-bottom: .7rem
+    }
+
+    h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: .35rem
+    }
+
+    p {
+      max-width: 62ch;
+      color: var(--muted)
+    }
+
+    a {
+      color: var(--gold)
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--gold);
+      outline-offset: 3px
+    }
+
+    .wrap {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 20px
+    }
+
+    section {
+      padding: 64px 0
+    }
+
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 0
+    }
+
+    .logo {
+      font-weight: 600;
+      font-size: 1.05rem;
+      letter-spacing: .28em;
+      text-decoration: none;
+      color: var(--gold)
+    }
+
+    .btn {
+      display: inline-block;
+      background: var(--gold);
+      color: var(--onGold);
+      font: inherit;
+      font-weight: 600;
+      padding: 15px 26px;
+      border-radius: 999px;
+      text-decoration: none;
+      border: 0;
+      cursor: pointer
+    }
+
+    .btn:hover {
+      background: #f0c52e
+    }
+
+    .btn.ghost {
+      background: transparent;
+      color: var(--gold);
+      box-shadow: inset 0 0 0 2px var(--gold)
+    }
+
+    .btn.ghost:hover {
+      background: var(--gold-soft)
+    }
+
+    .small {
+      font-size: .88rem;
+      color: var(--muted)
+    }
+
+    /* hero */
+    .hero {
+      display: grid;
+      gap: 40px;
+      align-items: center;
+      padding: 30px 0 64px
+    }
+
+    @media(min-width:860px) {
+      .hero {
+        grid-template-columns: 1.1fr .9fr
+      }
+    }
+
+    .hero p.lead {
+      font-size: 1.15rem;
+      margin: 18px 0 26px
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px
+    }
+
+    .stage {
+      position: relative;
+      border-radius: 34px;
+      background: radial-gradient(120% 70% at 50% 100%, #2A2412 0%, var(--surface) 55%);
+      border: 1px solid var(--line);
+      height: 520px;
+      overflow: hidden
+    }
+
+    .chip {
+      position: absolute;
+      background: var(--surface2);
+      color: #CFCBBA;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: .82rem;
+      border: 1px solid var(--line);
+      animation: vanish 4s ease-in forwards
+    }
+
+    .chip:nth-child(1) {
+      top: 20px;
+      left: 18px;
+      animation-delay: .3s
+    }
+
+    .chip:nth-child(2) {
+      top: 62px;
+      right: 16px;
+      animation-delay: .9s
+    }
+
+    .chip:nth-child(3) {
+      top: 104px;
+      left: 40px;
+      animation-delay: 1.5s
+    }
+
+    .chip:nth-child(4) {
+      top: 146px;
+      right: 34px;
+      animation-delay: 2.1s
+    }
+
+    @keyframes vanish {
+      0% {
+        opacity: 1;
+        transform: none
+      }
+
+      30% {
+        opacity: 1
+      }
+
+      100% {
+        opacity: 0;
+        transform: translateY(-24px) scale(.96);
+        filter: blur(4px)
+      }
+    }
+
+    .stage img {
+      position: absolute;
+      left: 50%;
+      bottom: -2px;
+      transform: translateX(-50%);
+      width: 68%;
+      max-width: 290px;
+      border-radius: 30px 30px 0 0;
+      border: 5px solid #000;
+      border-bottom: 0;
+      box-shadow: 0 0 60px rgba(227, 183, 30, .18)
+    }
+
+    @media(prefers-reduced-motion:reduce) {
+      .chip {
+        animation: none;
+        opacity: .5
+      }
+    }
+
+    /* pain */
+    .pain {
+      background: var(--surface)
+    }
+
+    .moments {
+      display: grid;
+      gap: 14px;
+      margin-top: 28px
+    }
+
+    @media(min-width:760px) {
+      .moments {
+        grid-template-columns: repeat(3, 1fr)
+      }
+    }
+
+    .moment {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 22px
+    }
+
+    .moment strong {
+      display: block;
+      font-size: 1.05rem;
+      color: var(--gold);
+      margin-bottom: 6px
+    }
+
+    .moment span {
+      color: var(--muted)
+    }
+
+    /* calc */
+    .calc {
+      background: var(--surface);
+      border: 2px solid var(--gold);
+      border-radius: 26px;
+      padding: 26px;
+      margin-top: 26px;
+      display: grid;
+      gap: 26px
+    }
+
+    @media(min-width:820px) {
+      .calc {
+        grid-template-columns: 1fr 1fr;
+        padding: 34px
+      }
+    }
+
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 4px
+    }
+
+    .val {
+      color: var(--gold);
+      font-weight: 800
+    }
+
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--gold);
+      margin: 6px 0 20px;
+      height: 28px
+    }
+
+    .result {
+      background: var(--gold-soft);
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center
+    }
+
+    .big {
+      font-weight: 800;
+      font-size: clamp(3rem, 10vw, 4.8rem);
+      line-height: 1;
+      color: var(--gold)
+    }
+
+    .result p {
+      color: var(--text)
+    }
+
+    .result ul {
+      list-style: none;
+      padding: 0;
+      margin: 14px 0 18px
+    }
+
+    .result li {
+      padding: 6px 0;
+      border-bottom: 1px solid #4A3E14;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px
+    }
+
+    /* steps */
+    .steps {
+      display: grid;
+      gap: 16px;
+      margin-top: 26px
+    }
+
+    @media(min-width:760px) {
+      .steps {
+        grid-template-columns: repeat(3, 1fr)
+      }
+    }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 22px
+    }
+
+    /* safe */
+    .safe {
+      background: var(--safe-bg)
+    }
+
+    .safe h2 {
+      color: var(--safe)
+    }
+
+    .safe-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 26px
+    }
+
+    @media(min-width:760px) {
+      .safe-grid {
+        grid-template-columns: 1fr 1fr
+      }
+    }
+
+    .safe-item {
+      background: var(--safe-card);
+      border-radius: 20px;
+      padding: 22px;
+      border-left: 6px solid var(--safe)
+    }
+
+    .tick {
+      color: var(--safe);
+      font-weight: 800
+    }
+
+    code {
+      background: var(--surface2);
+      color: var(--text);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: .85rem;
+      word-break: break-all
+    }
+
+    ol.install {
+      margin: 14px 0 0 1.2rem;
+      max-width: 62ch;
+      color: var(--muted)
+    }
+
+    ol.install li {
+      margin-bottom: 8px
+    }
+
+    .final {
+      text-align: center
+    }
+
+    .final p {
+      margin: 12px auto 26px
+    }
+
+    footer {
+      padding: 30px 0 50px;
+      color: var(--muted);
+      font-size: .88rem;
+      text-align: center
+    }
+  </style>
+
+  <!-- GoatCounter Source Tracking (?ref=) & Setup -->
+  <script>
+    window.goatcounter = window.goatcounter || {};
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var ref = params.get('ref');
+        if (ref) {
+          window.goatcounter.referrer = function () {
+            return 'ref:' + ref;
+          };
+        }
+      } catch (e) { }
+    })();
+  </script>
+  <script data-goatcounter="https://[YOUR-CODE].goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</head>
+
+<body>
+
+  <header class="wrap">
+    <nav>
+      <a class="logo" href="#top">THOUGHTHOLDER</a>
+      <a class="btn ghost" href="#download">Download</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <div class="wrap hero">
+      <div>
+        <h1>Ideas don’t wait for you to open an app.</h1>
+        <p class="lead">Thoughtholder catches a thought the moment you have it. Tap record, say it or type it, and it’s
+          saved. Recording even continues when your screen turns off. Free for Android.</p>
+        <div class="cta-row">
+          <a class="btn" href="#download">Get the app</a>
+          <a class="btn ghost" href="#calculator">How many am I losing?</a>
+        </div>
+        <p class="small" style="margin-top:14px">Free · Android · about 100 MB</p>
+      </div>
+      <div class="stage">
+        <div class="chip" aria-hidden="true">an app for sharing lecture notes</div>
+        <div class="chip" aria-hidden="true">fix the gate sensor delay</div>
+        <div class="chip" aria-hidden="true">video idea: build in one night</div>
+        <div class="chip" aria-hidden="true">call the printing press</div>
+        <img src="screenshot.jpg"
+          alt="Thoughtholder’s Brain Dump screen with a Voice and Text switch and a large Tap to record button"
+          width="600" height="1333">
+      </div>
+    </div>
+
+    <section class="pain">
+      <div class="wrap">
+        <h2>The idea was good. You just had nowhere to put it.</h2>
+        <p>Great thoughts show up while you’re walking to class, mid-lecture, or lying in bed. By the time you find a
+          notes app, pick a folder and start typing, the thought has already moved on.</p>
+        <div class="moments">
+          <div class="moment"><strong>In the middle of something</strong><span>Your hands are busy and opening an app
+              breaks your focus.</span></div>
+          <div class="moment"><strong>“I’ll remember it later”</strong><span>You won’t. The details go first, and then
+              the whole idea.</span></div>
+          <div class="moment"><strong>Scattered everywhere</strong><span>Half in chats, half on paper, half in your
+              head. Nothing you can search or review.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="calculator">
+      <div class="wrap">
+        <h2>Count the ideas you’re losing</h2>
+        <p>Move the sliders to match your life. This is a simple estimate, not a study, so be honest with yourself.</p>
+        <div class="calc">
+          <div>
+            <label for="perDay">Ideas that cross your mind each day: <span class="val" id="perDayOut">5</span></label>
+            <input type="range" id="perDay" min="1" max="20" value="5">
+            <label for="lost">How many of them do you forget: <span class="val" id="lostOut">70</span>%</label>
+            <input type="range" id="lost" min="10" max="100" step="5" value="70">
+            <label for="days">Over this many days: <span class="val" id="daysOut">30</span></label>
+            <input type="range" id="days" min="7" max="365" step="1" value="30">
+          </div>
+          <div class="result" aria-live="polite">
+            <div class="big" id="missed">105</div>
+            <p><strong>ideas missed</strong> in <span id="daysTxt">30</span> days.</p>
+            <ul>
+              <li><span>Per week</span><strong id="perWeek">25</strong></li>
+              <li><span>Per year</span><strong id="perYear">1,278</strong></li>
+            </ul>
+            <a class="btn" href="#download" id="ctaCalc">Save those 105 ideas</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding-top:0">
+      <div class="wrap">
+        <h2>One tap. Thought saved.</h2>
+        <div class="steps">
+          <div class="step">
+            <h3>Tap to record</h3>
+            <p>Recording continues when your screen turns off, so you can put your phone down and keep talking.</p>
+          </div>
+          <div class="step">
+            <h3>Speak or type</h3>
+            <p>Switch between Voice and Text, or tap “Or type a thought instead”.</p>
+          </div>
+          <div class="step">
+            <h3>Review in your Stream</h3>
+            <p>Every thought lands in one place, ready when you sit down to think.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="safe">
+      <div class="wrap">
+        <h2>Safe to install, and here’s how to check</h2>
+        <p>Thoughtholder isn’t on the Play Store yet, so Android will show a caution message. That’s standard for any
+          app installed from outside the store. Here’s what you can verify yourself.</p>
+        <div class="safe-grid">
+          <div class="safe-item">
+            <h3><span class="tick">✓</span> Only the permissions it needs</h3>
+            <p>The microphone is used for voice capture. You can see and change app permissions any time in Android
+              settings.</p>
+          </div>
+          <div class="safe-item">
+            <h3><span class="tick">✓</span> Your thoughts stay yours</h3>
+            <p>No ads, no tracking and no account needed to start capturing.</p>
+          </div>
+          <div class="safe-item">
+            <h3><span class="tick">✓</span> Check the file</h3>
+            <p>Compare this fingerprint (SHA-256) with your downloaded file:<br><code id="sha">PASTE_SHA256_HERE</code>
+            </p>
+          </div>
+          <div class="safe-item">
+            <h3><span class="tick">✓</span> Scan it yourself</h3>
+            <p>Upload the APK to <a href="https://www.virustotal.com" target="_blank" rel="noopener">VirusTotal</a> to
+              see results from many security scanners. Built by a student developer at A3PK Labs.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="final">
+      <div class="wrap">
+        <h2>Stop losing good ideas</h2>
+        <p>Download Thoughtholder, install it, and capture your first thought.</p>
+        <a class="btn" id="downloadBtn"
+          href="https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/app-release.apk" target="_blank"
+          rel="noopener" download>Download for Android · v1.0 · ~100 MB</a>
+        <div style="text-align:left;max-width:520px;margin:34px auto 0">
+          <h3>How to install</h3>
+          <ol class="install">
+            <li>Open the downloaded file. If Android asks, allow installs from your browser.</li>
+            <li>Tap <strong>Install</strong>. If Play Protect shows a notice, choose <strong>More details</strong>, then
+              <strong>Install anyway</strong>.</li>
+            <li>Open Thoughtholder, allow the microphone, and tap to record.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Built by <strong>A3PK Labs</strong> · Build. Break. Learn. Repeat.
+  </footer>
+
+  <script>
+    (function () {
+      var $ = function (id) { return document.getElementById(id) };
+      var fmt = function (n) { return Math.round(n).toLocaleString("en-US") };
+      function calc() {
+        var perDay = +$("perDay").value, lost = +$("lost").value, days = +$("days").value;
+        var daily = perDay * lost / 100, total = daily * days;
+        $("perDayOut").textContent = perDay;
+        $("lostOut").textContent = lost;
+        $("daysOut").textContent = days;
+        $("daysTxt").textContent = days;
+        $("missed").textContent = fmt(total);
+        $("perWeek").textContent = fmt(daily * 7);
+        $("perYear").textContent = fmt(daily * 365);
+        $("ctaCalc").textContent = "Save those " + fmt(total) + " ideas";
+      }
+      ["perDay", "lost", "days"].forEach(function (id) { $(id).addEventListener("input", calc) });
+      calc();
+
+      // Track APK download clicks via GoatCounter
+      var dlBtn = $("downloadBtn");
+      if (dlBtn) {
+        dlBtn.addEventListener("click", function () {
+          try {
+            if (window.goatcounter && typeof window.goatcounter.count === "function") {
+              window.goatcounter.count({
+                path: "download-apk",
+                title: "Download APK",
+                event: true
+              });
+            }
+          } catch (e) {
+            // Silently guard so ad blockers never break the download
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+
+</html>

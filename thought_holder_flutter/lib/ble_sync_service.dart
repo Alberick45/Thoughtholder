@@ -10,7 +10,17 @@ import 'settings_service.dart';
 import 'sync_identity.dart';
 import 'ble_crypto.dart';
 import 'ble_merge_engine.dart';
+import 'services/ble_security_guard.dart';
 import 'utils/app_logger.dart';
+
+/// Typed exception thrown when attempting BLE sync with an unpaired or untrusted device.
+class DeviceNotPairedException implements Exception {
+  final String message;
+  const DeviceNotPairedException([this.message = "This device isn't paired."]);
+
+  @override
+  String toString() => message;
+}
 
 /// Progress info emitted during two-way sync
 class SyncProgressUpdate {
@@ -93,16 +103,13 @@ class BleSyncService {
       final isCoordinator = localDeviceId.compareTo(deviceId) < 0;
       final coordinatorId = isCoordinator ? localDeviceId : deviceId;
 
-      // 4. Retrieve shared pairing key (Section 7)
+      // 4. Retrieve shared pairing key (Phase 5 Item 2: Lock-down - No 000000 fallback)
       String sharedKey = '';
       if (settingsService != null) {
         sharedKey = settingsService.getDeviceSharedKey(deviceId) ?? '';
-        if (sharedKey.isEmpty) {
-          // If not explicitly paired, derive deterministic fallback key
-          sharedKey = BleCrypto.deriveSharedKey('000000', localDeviceId, deviceId);
-        }
-      } else {
-        sharedKey = BleCrypto.deriveSharedKey('000000', localDeviceId, deviceId);
+      }
+      if (sharedKey.trim().isEmpty) {
+        throw const DeviceNotPairedException("This device isn't paired.");
       }
 
       // 5. Package local dataset (excluding Groq API key, themes, and audio)
@@ -125,12 +132,18 @@ class BleSyncService {
 
       final jsonBytes = utf8.encode(json.encode(payloadMap));
       final compressed = BleCrypto.compress(Uint8List.fromList(jsonBytes));
-      final encrypted = BleCrypto.encrypt(compressed, sharedKey);
+      final counter = DateTime.now().microsecondsSinceEpoch;
+      final authenticatedPacket = BleSecurityGuard.packAuthenticatedMessage(
+        senderId: localDeviceId,
+        counter: counter,
+        payload: compressed,
+        sharedKey: sharedKey.trim(),
+      );
 
-      // Send payload to peer
+      // Send authenticated payload to peer
       await sender.sendBytes(
         device,
-        encrypted,
+        authenticatedPacket,
         type: 'text',
         name: 'sync_bundle.bin',
       );
@@ -259,33 +272,13 @@ class BleSyncService {
     }
   }
 
-  // ─── Legacy One-Way Send Mode (Section 1 & 8) ──────────────────────────────
-
+  // ─── Legacy One-Way Send Mode Parked (Phase 5 Item 2) ─────────────────────
+  // Unencrypted `syncTo` was removed and moved to lib/_parked/parked_sync_to.dart
   Future<void> startScan() => sender.startScan();
   Future<void> stopScan() => sender.stopScan();
 
   Stream<List<BleDevice>> get nearbyDevices => sender.devices;
 
-  /// Sends all local thoughts to [device] as a JSON text blob.
-  Future<void> syncTo(BleDevice device) async {
-    final db = await DatabaseHelper.instance.database;
-    final thoughts = await db.query('thoughts');
-
-    final payload = json.encode({
-      'thoughts': thoughts,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'source': 'thought_holder_flutter',
-    });
-
-    final bytes = Uint8List.fromList(utf8.encode(payload));
-
-    await sender.sendBytes(
-      device,
-      bytes,
-      type: 'text',
-      name: null,
-    );
-  }
 
   Stream<dynamic> get sendProgress => sender.progress;
   Stream<dynamic> get receiveProgress => receiver.progress;

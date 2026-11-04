@@ -4,6 +4,7 @@ import '../database_helper.dart';
 import '../sync_identity.dart';
 import '../utils/app_logger.dart';
 import '../utils/title_generator.dart';
+import '../secure_storage_service.dart';
 import 'backup_service.dart';
 
 enum CheckStatus {
@@ -472,6 +473,33 @@ class SelfCheckService {
           status: CheckStatus.amber,
           summary: 'Could not inspect backup storage',
           details: 'Backup directory could not be read.',
+        ));
+      }
+
+      // 9. OS Secure Storage (Windows Credential Vault / Keychain)
+      try {
+        final secureHealthOk = await SecureStorageService.testSecureStorageHealth();
+        if (secureHealthOk) {
+          items.add(const CheckItemResult(
+            title: 'Secure storage',
+            status: CheckStatus.green,
+            summary: 'Hardware / OS credential vault operational',
+            details: 'Write, read, and delete validation cycle succeeded without leaking secrets.',
+          ));
+        } else {
+          items.add(const CheckItemResult(
+            title: 'Secure storage',
+            status: CheckStatus.amber,
+            summary: 'OS credential vault not active in current session',
+            details: 'Credentials will fall back safely to guarded memory.',
+          ));
+        }
+      } catch (e) {
+        items.add(const CheckItemResult(
+          title: 'Secure storage',
+          status: CheckStatus.amber,
+          summary: 'Secure storage check could not run',
+          details: 'OS vault check was skipped.',
         ));
       }
     } catch (e) {

@@ -4,6 +4,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'secure_storage_service.dart';
+import 'services/ble_security_guard.dart';
+import 'utils/app_logger.dart';
 
 /// Service to persist and manage application settings using Hive.
 class SettingsService extends ChangeNotifier {
@@ -21,6 +23,11 @@ class SettingsService extends ChangeNotifier {
     await _tryLoadFromEnvFile();
     await scrubNearbyDevices();
     await _loadSecureKeys();
+    await _loadAndMigrateGroqKey();
+    BleSecurityGuard.instance.configurePersistence(
+      counterLookup: getDeviceLastSeenCounter,
+      persistCounter: setDeviceLastSeenCounter,
+    );
   }
 
   Future<void> _tryLoadFromEnvFile() async {
@@ -32,9 +39,12 @@ class SettingsService extends ChangeNotifier {
           final trimmed = line.trim();
           if (trimmed.startsWith('GROQ_KEY=')) {
             final key = trimmed.substring('GROQ_KEY='.length).trim();
-            final currentKey = _box.get('groq_api_key', defaultValue: '') as String;
-            if (key.isNotEmpty && currentKey.isEmpty) {
-              await _box.put('groq_api_key', key);
+            if (key.isNotEmpty && _cachedGroqApiKey.isEmpty) {
+              final sec = await SecureStorageService.getGroqApiKey();
+              if (sec == null || sec.isEmpty) {
+                await SecureStorageService.saveGroqApiKey(key);
+                _cachedGroqApiKey = key;
+              }
             }
           }
           if (trimmed.startsWith('WHISPER_PROMPT=')) {
@@ -233,9 +243,66 @@ class SettingsService extends ChangeNotifier {
   static const String defaultGroqKey = String.fromEnvironment('GROQ_KEY', defaultValue: '');
   static const String defaultWhisperPrompt = 'Albert, PK, Aaenics, UMaT, Tarkwa, Ghana';
 
+  String _cachedGroqApiKey = '';
+  bool _groqKeyMigrated = false;
+  bool _groqTestSucceeded = false;
+  String? _groqMigrationStatus;
+
+  bool get isGroqKeyInSecureStorage => _cachedGroqApiKey.isNotEmpty;
+  bool get hasLegacyGroqKeyInSettings =>
+      (_box.get('groq_api_key', defaultValue: '') as String).trim().isNotEmpty;
+  bool get groqKeyMigrated => _groqKeyMigrated;
+  bool get groqTestSucceeded => _groqTestSucceeded;
+  String? get groqMigrationStatus => _groqMigrationStatus;
+
+  Future<void> _loadAndMigrateGroqKey() async {
+    try {
+      // 1. Try reading directly from OS SecureStorage
+      final secureKey = await SecureStorageService.getGroqApiKey();
+      if (secureKey != null && secureKey.trim().isNotEmpty) {
+        _cachedGroqApiKey = secureKey.trim();
+        _groqMigrationStatus = 'Loaded from OS Secure Storage';
+        if (_box.containsKey('groq_api_key')) {
+          await _box.delete('groq_api_key');
+        }
+        AppLogger.info('SettingsService', 'Groq key loaded from SecureStorage');
+        return;
+      }
+
+      // 2. Check for legacy key in plain Hive settings
+      final legacyKey = (_box.get('groq_api_key', defaultValue: '') as String).trim();
+      if (legacyKey.isNotEmpty) {
+        // Step A: write to secure storage
+        await SecureStorageService.saveGroqApiKey(legacyKey);
+        // Step B: read back and compare byte-for-byte
+        final verifiedKey = await SecureStorageService.getGroqApiKey();
+        if (verifiedKey == legacyKey) {
+          _cachedGroqApiKey = verifiedKey!;
+          _groqKeyMigrated = true;
+          // Step C: Test connection ping
+          final testOk = await testGroqKey(verifiedKey);
+          _groqTestSucceeded = testOk;
+          _groqMigrationStatus = testOk
+              ? 'Migrated to OS secure storage (byte match & live ping OK)'
+              : 'Migrated to OS secure storage (byte match OK)';
+          AppLogger.info('SettingsService', 'Groq key migrated to SecureStorage and verified match');
+          // Step D: Purge plaintext copy from Hive settings file now that user approved
+          await _box.delete('groq_api_key');
+        } else {
+          _groqMigrationStatus = 'Secure storage read-back failed verification';
+          AppLogger.error('SettingsService', 'Groq key read-back did not match legacy key');
+        }
+      }
+    } catch (e) {
+      _groqMigrationStatus = 'Exception during secure storage migration';
+      AppLogger.error('SettingsService', 'Exception migrating Groq key', e);
+    }
+  }
+
   String get groqApiKey {
     const fromEnv = String.fromEnvironment('GROQ_KEY');
     if (fromEnv.isNotEmpty) return fromEnv;
+    if (_cachedGroqApiKey.isNotEmpty) return _cachedGroqApiKey;
     return _box.get('groq_api_key', defaultValue: defaultGroqKey);
   }
 
@@ -249,7 +316,12 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> setGroqApiKey(String key) async {
-    await _box.put('groq_api_key', key.trim());
+    final trimmed = key.trim();
+    _cachedGroqApiKey = trimmed;
+    await SecureStorageService.saveGroqApiKey(trimmed);
+    if (_box.containsKey('groq_api_key')) {
+      await _box.delete('groq_api_key');
+    }
     notifyListeners();
   }
 
@@ -261,7 +333,20 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clears the key from both OS secure storage and legacy plain settings.
   Future<void> removeGroqApiKey() async {
+    _cachedGroqApiKey = '';
+    _groqMigrationStatus = null;
+    _groqTestSucceeded = false;
+    _groqKeyMigrated = false;
+    await SecureStorageService.deleteGroqApiKey();
+    await _box.delete('groq_api_key');
+    notifyListeners();
+  }
+
+  /// Removes the legacy plaintext key copy from Hive settings file.
+  /// To be executed ONLY upon user's explicit confirmation.
+  Future<void> purgeLegacyGroqKeyFromSettings() async {
     await _box.delete('groq_api_key');
     notifyListeners();
   }
@@ -591,6 +676,23 @@ class SettingsService extends ChangeNotifier {
       return (map[peerDeviceId] as Map)['sharedKey'] as String?;
     }
     return null;
+  }
+
+  /// Retrieves the persisted last-seen replay counter for [senderId].
+  int getDeviceLastSeenCounter(String senderId) {
+    final raw = _box.get('ble_last_seen_counters', defaultValue: <dynamic, dynamic>{});
+    if (raw is Map && raw.containsKey(senderId)) {
+      return (raw[senderId] as num?)?.toInt() ?? 0;
+    }
+    return 0;
+  }
+
+  /// Persists the last-seen replay counter for [senderId] to disk.
+  Future<void> setDeviceLastSeenCounter(String senderId, int counter) async {
+    final raw = _box.get('ble_last_seen_counters', defaultValue: <dynamic, dynamic>{});
+    final map = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    map[senderId] = counter;
+    await _box.put('ble_last_seen_counters', map);
   }
 
   String? getLastSyncInfo() {

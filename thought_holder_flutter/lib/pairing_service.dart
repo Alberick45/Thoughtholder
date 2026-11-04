@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:cryptography/cryptography.dart' as c;
 import 'ble_crypto.dart';
+import 'services/ble_security_guard.dart';
 import 'settings_service.dart';
 import 'sync_identity.dart';
 
@@ -123,6 +124,8 @@ class PairingService extends ChangeNotifier {
     );
 
     _remainingSeconds = 120;
+    // Phase 5 Item 2: Open strictly capped 2-minute pairing window
+    BleSecurityGuard.instance.openPairingWindow(duration: const Duration(minutes: 2));
     _startTimer();
     notifyListeners();
     return _activeSession!;
@@ -134,6 +137,7 @@ class PairingService extends ChangeNotifier {
       if (_activeSession == null || _activeSession!.isExpired) {
         _remainingSeconds = 0;
         timer.cancel();
+        BleSecurityGuard.instance.closePairingWindow(reason: 'timeout');
         _recordFailure();
         notifyListeners();
         return;
@@ -152,6 +156,8 @@ class PairingService extends ChangeNotifier {
   void cancelSession() {
     _cancelTimer();
     _activeSession = null;
+    _remainingSeconds = 0;
+    BleSecurityGuard.instance.closePairingWindow(reason: 'cancel');
     notifyListeners();
   }
 
@@ -297,6 +303,8 @@ class PairingService extends ChangeNotifier {
     session.isVerified = true;
     _failedAttempts = 0;
     _cancelTimer();
+    // Phase 5 Item 2: Pairing window closes on success
+    BleSecurityGuard.instance.closePairingWindow(reason: 'success');
     notifyListeners();
   }
 }
