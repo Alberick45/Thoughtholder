@@ -162,6 +162,47 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Gesture Settings ---
+  bool get swipeSortedUnsorted => _box.get('swipe_sorted_unsorted', defaultValue: true);
+
+  Future<void> setSwipeSortedUnsorted(bool value) async {
+    await _box.put('swipe_sorted_unsorted', value);
+    notifyListeners();
+  }
+
+  bool get swipeCaptureStream => _box.get('swipe_capture_stream', defaultValue: true);
+
+  Future<void> setSwipeCaptureStream(bool value) async {
+    await _box.put('swipe_capture_stream', value);
+    notifyListeners();
+  }
+
+  bool get swipeActionsOnIdeas => _box.get('swipe_actions_on_ideas', defaultValue: false);
+
+  Future<void> setSwipeActionsOnIdeas(bool value) async {
+    await _box.put('swipe_actions_on_ideas', value);
+    notifyListeners();
+  }
+
+  String get swipeDistance => _box.get('swipe_distance', defaultValue: 'Normal');
+
+  Future<void> setSwipeDistance(String value) async {
+    await _box.put('swipe_distance', value);
+    notifyListeners();
+  }
+
+  double get swipeThresholdFraction {
+    switch (swipeDistance) {
+      case 'Easy':
+        return 0.20;
+      case 'Firm':
+        return 0.45;
+      case 'Normal':
+      default:
+        return 0.30;
+    }
+  }
+
   /// Check if Google Drive Backup is enabled.
   bool get googleDriveBackup => _box.get('google_drive_backup', defaultValue: false);
 

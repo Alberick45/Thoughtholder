@@ -979,7 +979,124 @@ class SettingsRegistry {
       ),
 
       // ==========================================
-      // GROUP 7: This computer (desktop only)
+      // GROUP 7: Gestures
+      // ==========================================
+      SettingEntry(
+        id: 'swipe_sorted_unsorted',
+        title: 'Swipe between Sorted and Unsorted',
+        description: 'Swipe left or right to switch between Sorted and Unsorted tabs.',
+        group: 'Gestures',
+        keywords: ['swipe', 'gesture', 'gestures', 'sorted', 'unsorted', 'tab', 'tabs'],
+        builder: (context, settings, colors) {
+          return SettingsSwitchRow(
+            title: 'Swipe between Sorted and Unsorted',
+            subtitle: 'Swipe left or right to switch between Sorted and Unsorted tabs.',
+            value: settings.swipeSortedUnsorted,
+            onChanged: (val) => settings.setSwipeSortedUnsorted(val),
+            colors: colors,
+          );
+        },
+      ),
+      SettingEntry(
+        id: 'swipe_capture_stream',
+        title: 'Swipe between Capture and Stream',
+        description: 'Swipe left or right to move between Capture and Stream.',
+        group: 'Gestures',
+        keywords: ['swipe', 'gesture', 'gestures', 'capture', 'stream', 'tab', 'tabs', 'main'],
+        builder: (context, settings, colors) {
+          return SettingsSwitchRow(
+            title: 'Swipe between Capture and Stream',
+            subtitle: 'Swipe left or right to move between Capture and Stream.',
+            value: settings.swipeCaptureStream,
+            onChanged: (val) => settings.setSwipeCaptureStream(val),
+            colors: colors,
+          );
+        },
+      ),
+      SettingEntry(
+        id: 'swipe_actions_on_ideas',
+        title: 'Swipe actions on ideas',
+        description:
+            'Swiping on a card does an action, so change tabs from the tab pills or the header instead.',
+        group: 'Gestures',
+        keywords: ['swipe', 'gesture', 'gestures', 'card', 'ideas', 'actions', 'done', 'trash', 'skip'],
+        builder: (context, settings, colors) {
+          return SettingsSwitchRow(
+            title: 'Swipe actions on ideas',
+            subtitle:
+                'Swiping on a card does an action, so change tabs from the tab pills or the header instead.',
+            value: settings.swipeActionsOnIdeas,
+            onChanged: (val) => settings.setSwipeActionsOnIdeas(val),
+            colors: colors,
+          );
+        },
+      ),
+      SettingEntry(
+        id: 'swipe_distance',
+        title: 'Swipe distance',
+        description: 'How far across the screen you drag before the tab changes.',
+        group: 'Gestures',
+        keywords: ['swipe', 'gesture', 'gestures', 'distance', 'threshold', 'easy', 'normal', 'firm', 'drag'],
+        builder: (context, settings, colors) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Swipe distance',
+                style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'How far across the screen you drag before the tab changes.',
+                style: appFont(color: colors.mute, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  for (final item in [
+                    {'label': 'Easy (20%)', 'key': 'Easy'},
+                    {'label': 'Normal (30%)', 'key': 'Normal'},
+                    {'label': 'Firm (45%)', 'key': 'Firm'},
+                  ]) ...[
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => settings.setSwipeDistance(item['key']!),
+                        child: Container(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: settings.swipeDistance == item['key'] ? colors.goldBg : colors.card,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: settings.swipeDistance == item['key'] ? colors.gold : colors.line,
+                              width: settings.swipeDistance == item['key'] ? 1.8 : 1.0,
+                            ),
+                          ),
+                          child: Text(
+                            item['label']!,
+                            textAlign: TextAlign.center,
+                            style: appFont(
+                              color: settings.swipeDistance == item['key'] ? colors.gold : colors.text,
+                              fontSize: 12,
+                              fontWeight: settings.swipeDistance == item['key'] ? FontWeight.bold : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (item['key'] != 'Firm') const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+
+      // ==========================================
+      // GROUP 8: This computer (desktop only)
       // ==========================================
       SettingEntry(
         id: 'close_to_tray',

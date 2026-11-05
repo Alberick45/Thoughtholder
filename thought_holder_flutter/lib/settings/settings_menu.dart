@@ -13,6 +13,7 @@ import 'sounds_group.dart';
 import 'notifications_group.dart';
 import 'devices_group.dart';
 import 'computer_group.dart';
+import 'gestures_group.dart';
 import '../widgets/keyboard_safe_sheet.dart';
 import 'diagnostics_screen.dart';
 import 'settings_registry.dart';
@@ -90,6 +91,11 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
     final pairedCount = settings.getPairedDevices().length;
     final driveStatus = _driveSignedIn ? 'connected' : 'not connected';
     final devicesSummary = '$pairedCount paired devices · Google Drive $driveStatus';
+    final gesturesTabs = (settings.swipeSortedUnsorted || settings.swipeCaptureStream)
+        ? 'Tab swipe on'
+        : 'Tab swipe off';
+    final gesturesCards = settings.swipeActionsOnIdeas ? 'card actions on' : 'card actions off';
+    final gesturesSummary = '$gesturesTabs · $gesturesCards';
     final trayStatus = settings.closeToTray ? 'on' : 'off';
     final startupStatus = settings.launchAtStartup ? 'on' : 'off';
     final computerSummary = 'Tray $trayStatus · startup $startupStatus';
@@ -197,6 +203,7 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
                     soundsSummary,
                     notificationsSummary,
                     devicesSummary,
+                    gesturesSummary,
                     computerSummary,
                   ),
           ),
@@ -248,6 +255,7 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
       'Sounds',
       'Notifications',
       'Devices and backup',
+      'Gestures',
       'This computer',
     ];
 
@@ -307,6 +315,7 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
     String soundsSummary,
     String notificationsSummary,
     String devicesSummary,
+    String gesturesSummary,
     String computerSummary,
   ) {
     return ListView(
@@ -400,8 +409,23 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
             );
           },
         ),
+        const SizedBox(height: 10),
 
-        // 7. This computer (Windows and desktop builds ONLY)
+        // 7. Gestures
+        _buildMenuRow(
+          icon: Icons.swipe_outlined,
+          title: 'Gestures',
+          summary: gesturesSummary,
+          colors: colors,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const GesturesGroupScreen()),
+            );
+          },
+        ),
+
+        // 8. This computer (Windows and desktop builds ONLY)
         if (isDesktop) ...[
           const SizedBox(height: 10),
           _buildMenuRow(

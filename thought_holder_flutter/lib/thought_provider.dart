@@ -114,6 +114,12 @@ class ThoughtProvider with ChangeNotifier {
     }
   }
 
+  void unskipThought(String id) {
+    if (_sessionSkippedIds.remove(id)) {
+      notifyListeners();
+    }
+  }
+
   void clearSessionSkips() {
     _sessionSkippedIds.clear();
     notifyListeners();

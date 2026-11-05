@@ -12,6 +12,7 @@ import 'navigation_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
 import 'thought_provider.dart';
+import 'widgets/swipe_tabs.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
@@ -760,8 +761,9 @@ class _CaptureScreenState extends State<CaptureScreen>
               const SingleActivator(LogicalKeyboardKey.enter, meta: true):
                   _submitText,
             },
-            child: TextField(
-              controller: _textController,
+            child: SwipeExclusion(
+              child: TextField(
+                controller: _textController,
               onChanged: (val) {
                 final s = context.read<SettingsService>();
                 if (val.isNotEmpty && val.endsWith('\n')) {
@@ -796,6 +798,7 @@ class _CaptureScreenState extends State<CaptureScreen>
               ),
             ),
           ),
+        ),
           const SizedBox(height: 16),
 
           ElevatedButton(

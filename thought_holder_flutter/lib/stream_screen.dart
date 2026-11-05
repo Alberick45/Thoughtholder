@@ -15,6 +15,8 @@ import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
 import 'widgets/keyboard_safe_sheet.dart';
+import 'widgets/swipe_tabs.dart';
+import 'background_recording_service.dart';
 
 class StreamScreen extends StatefulWidget {
   const StreamScreen({super.key});
@@ -30,6 +32,7 @@ class _StreamScreenState extends State<StreamScreen> {
   int _visibleDoneCount = 9; // UPDATE 3: 9 at a time (3x3)
   int _visibleTrashCount = 12;
   String? _deletingForeverId; // For 2-step delete confirmation in Trash
+  double _liveStreamPage = 0.0;
 
   // Sorted tab state
   bool _bucketsSectionOpen = false;
@@ -452,52 +455,73 @@ class _StreamScreenState extends State<StreamScreen> {
       );
     }
 
-    return SafeArea(
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              const SizedBox(height: 12),
-              // First-time sound choice card (Section 2)
-              if (!settings.soundPromptAnswered) ...[
-                _buildSoundChoiceCard(settings, colors),
-                const SizedBox(height: 10),
+    final targetPage = nav.streamSubTab == 'unsorted' ? 1.0 : 0.0;
+    if ((_liveStreamPage - targetPage).abs() > 0.01 && !nav.isTrashOpen) {
+      _liveStreamPage = targetPage;
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.pageDown, control: true): () {
+          if (nav.streamSubTab == 'sorted') {
+            setState(() => _liveStreamPage = 1.0);
+            nav.setStreamSubTab('unsorted');
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.pageUp, control: true): () {
+          if (nav.streamSubTab == 'unsorted') {
+            setState(() => _liveStreamPage = 0.0);
+            nav.setStreamSubTab('sorted');
+          }
+        },
+      },
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                const SizedBox(height: 12),
+                // First-time sound choice card (Section 2)
+                if (!settings.soundPromptAnswered) ...[
+                  _buildSoundChoiceCard(settings, colors),
+                  const SizedBox(height: 10),
+                ],
+                // Top Navigation Pills: Unsorted (N) / Sorted / Done
+                _buildTopPills(nav, provider, colors, settings),
+                if (!(nav.streamSubTab == 'sorted' && nav.selectedBucket == null && !nav.isTrashOpen)) ...[
+                  const SizedBox(height: 8),
+                  _buildSubtitle(nav, colors),
+                ],
+                const SizedBox(height: 12),
+                // Main Content Area
+                Expanded(
+                  child: nav.isTrashOpen
+                      ? _buildTrashScreen(provider, nav, colors, settings)
+                      : _buildCurrentTabContent(nav, provider, settings, colors),
+                ),
               ],
-              // Top Navigation Pills: Unsorted (N) / Sorted / Done
-              _buildTopPills(nav, provider, colors, settings),
-              if (!(nav.streamSubTab == 'sorted' && nav.selectedBucket == null && !nav.isTrashOpen)) ...[
-                const SizedBox(height: 8),
-                _buildSubtitle(nav, colors),
-              ],
-              const SizedBox(height: 12),
-              // Main Content Area
-              Expanded(
-                child: nav.isTrashOpen
-                    ? _buildTrashScreen(provider, nav, colors, settings)
-                    : _buildCurrentTabContent(nav, provider, settings, colors),
-              ),
-            ],
-          ),
-          // Floating 3D Trash Button (Bottom Right)
-          if (!nav.isTrashOpen &&
-              MediaQuery.viewInsetsOf(context).bottom == 0 &&
-              !_isModalOpen &&
-              (ModalRoute.of(context)?.isCurrent ?? true))
-            Positioned(
-              right: 20,
-              bottom: 20,
-              child: _Floating3DTrashButton(
-                trashCount: provider.trashCount,
-                isOpen: nav.isTrashOpen,
-                colors: colors,
-                onTap: () {
-                  setState(() => _deletingForeverId = null);
-                  SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
-                  nav.toggleTrash();
-                },
-              ),
             ),
-        ],
+            // Floating 3D Trash Button (Bottom Right)
+            if (!nav.isTrashOpen &&
+                MediaQuery.viewInsetsOf(context).bottom == 0 &&
+                !_isModalOpen &&
+                (ModalRoute.of(context)?.isCurrent ?? true))
+              Positioned(
+                right: 20,
+                bottom: 20,
+                child: _Floating3DTrashButton(
+                  trashCount: provider.trashCount,
+                  isOpen: nav.isTrashOpen,
+                  colors: colors,
+                  onTap: () {
+                    setState(() => _deletingForeverId = null);
+                    SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+                    nav.toggleTrash();
+                  },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -553,41 +577,65 @@ class _StreamScreenState extends State<StreamScreen> {
     final currentSubTab = nav.streamSubTab;
     final isTrashOpen = nav.isTrashOpen;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Sorted tab first
-        _buildPill(
-          label: 'Sorted',
-          isSelected: !isTrashOpen && currentSubTab == 'sorted',
-          colors: colors,
-          onTap: () {
-            if (currentSubTab != 'sorted' || isTrashOpen) {
-              SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
-            }
-            nav.setStreamSubTab('sorted');
-          },
-        ),
-        const SizedBox(width: 8),
-        // Unsorted with count
-        _buildPill(
-          label: 'Unsorted ($unsortedCount)',
-          isSelected: !isTrashOpen && currentSubTab == 'unsorted',
-          colors: colors,
-          onTap: () {
-            if (currentSubTab != 'unsorted' || isTrashOpen) {
-              SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
-            }
+    final liveIndex = _liveStreamPage.round().clamp(0, 1);
+    final isSortedSelected = !isTrashOpen && liveIndex == 0;
+    final isUnsortedSelected = !isTrashOpen && liveIndex == 1;
+
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight && liveIndex == 0) {
+            setState(() => _liveStreamPage = 1.0);
             nav.setStreamSubTab('unsorted');
-          },
-        ),
-        // Done tab removed per user request
-      ],
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft && liveIndex == 1) {
+            setState(() => _liveStreamPage = 0.0);
+            nav.setStreamSubTab('sorted');
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Sorted tab first
+          _buildPill(
+            label: 'Sorted',
+            semanticsLabel: 'Sorted, tab 1 of 2${isSortedSelected ? ', selected' : ''}',
+            isSelected: isSortedSelected,
+            colors: colors,
+            onTap: () {
+              setState(() => _liveStreamPage = 0.0);
+              if (currentSubTab != 'sorted' || isTrashOpen) {
+                SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+              }
+              nav.setStreamSubTab('sorted');
+            },
+          ),
+          const SizedBox(width: 8),
+          // Unsorted with count
+          _buildPill(
+            label: 'Unsorted ($unsortedCount)',
+            semanticsLabel: 'Unsorted ($unsortedCount), tab 2 of 2${isUnsortedSelected ? ', selected' : ''}',
+            isSelected: isUnsortedSelected,
+            colors: colors,
+            onTap: () {
+              setState(() => _liveStreamPage = 1.0);
+              if (currentSubTab != 'unsorted' || isTrashOpen) {
+                SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+              }
+              nav.setStreamSubTab('unsorted');
+            },
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildPill({
     required String label,
+    required String semanticsLabel,
     required bool isSelected,
     required AppColors colors,
     required VoidCallback onTap,
@@ -595,7 +643,7 @@ class _StreamScreenState extends State<StreamScreen> {
     return Semantics(
       button: true,
       selected: isSelected,
-      label: label,
+      label: semanticsLabel,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -628,23 +676,45 @@ class _StreamScreenState extends State<StreamScreen> {
     );
   }
 
-  // --- Main Content Switcher ---
+  // --- Main Content Switcher with SwipeTabs ---
   Widget _buildCurrentTabContent(
     NavigationNotifier nav,
     ThoughtProvider provider,
     SettingsService settings,
     AppColors colors,
   ) {
-    switch (nav.streamSubTab) {
-      case 'unsorted':
-        return _buildUnsortedTab(provider, nav, colors);
-      case 'sorted':
-        return _buildSortedTab(nav, provider, settings, colors);
-      case 'done':
-        return _buildDoneTab(provider, colors);
-      default:
-        return _buildUnsortedTab(provider, nav, colors);
-    }
+    final int currentIndex = nav.streamSubTab == 'unsorted' ? 1 : 0;
+    BackgroundRecordingService? bgRecording;
+    try {
+      bgRecording = context.watch<BackgroundRecordingService>();
+    } catch (_) {}
+    final isRecording = bgRecording?.isRecording ?? false;
+
+    return SwipeTabs(
+      currentIndex: currentIndex,
+      tabLabels: const ['Sorted', 'Unsorted'],
+      thresholdFraction: settings.swipeThresholdFraction,
+      enabled: settings.swipeSortedUnsorted &&
+          nav.selectedBucket == null &&
+          !nav.isTrashOpen &&
+          !_isModalOpen &&
+          !isRecording &&
+          MediaQuery.viewInsetsOf(context).bottom == 0,
+      isRecording: isRecording,
+      onDragProgress: (page) {
+        if ((page - _liveStreamPage).abs() > 0.05) {
+          setState(() => _liveStreamPage = page);
+        }
+      },
+      onTabChanged: (index) {
+        setState(() => _liveStreamPage = index.toDouble());
+        nav.setStreamSubTab(index == 0 ? 'sorted' : 'unsorted');
+      },
+      children: [
+        _buildSortedTab(nav, provider, settings, colors),
+        _buildUnsortedTab(provider, nav, colors),
+      ],
+    );
   }
 
   // ==========================================================================
@@ -733,21 +803,113 @@ class _StreamScreenState extends State<StreamScreen> {
           // The Fixed-Size Idea Card (220px desktop, 200px phone)
           SizedBox(
             height: isDesktop ? 220.0 : 200.0,
-            child: FixedIdeaCard(
-              idea: thought,
-              colors: colors,
-              provider: provider,
-              isDesktop: isDesktop,
-              onReadMore: () => _showReadMorePopup(
-                context: context,
-                idea: thought,
-                provider: provider,
-                colors: colors,
-                settings: settings,
-              ),
-              onMoreOptions: () =>
-                  _showIdeaContextMenu(context, provider, thought, colors),
-            ),
+            child: settings.swipeActionsOnIdeas
+                ? Dismissible(
+                    key: ValueKey('unsorted_dismissible_${thought['id']}'),
+                    direction: DismissDirection.horizontal,
+                    dismissThresholds: const {
+                      DismissDirection.startToEnd: 0.40,
+                      DismissDirection.endToStart: 0.40,
+                    },
+                    background: Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colors.gold,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.folder, color: Colors.black, size: 24),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Choose bucket',
+                            style: appFont(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    secondaryBackground: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        border: Border.all(color: colors.line),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Skip for now',
+                            style: appFont(
+                              color: colors.gold,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(Icons.skip_next, color: colors.gold, size: 24),
+                        ],
+                      ),
+                    ),
+                    confirmDismiss: (direction) async {
+                      if (direction == DismissDirection.startToEnd) {
+                        SoundService.instance.play(SoundEvent.popupOpen, settings: settings);
+                        _showChooseBucketPopup(
+                          context: context,
+                          provider: provider,
+                          idea: thought,
+                          colors: colors,
+                          heading: 'Choose a bucket',
+                        );
+                        return false;
+                      } else if (direction == DismissDirection.endToStart) {
+                        final thoughtId = thought['id'];
+                        provider.skipThoughtForSession(thoughtId);
+                        _showUndoSnackBar('Skipped "$ideaName" for now', () {
+                          provider.unskipThought(thoughtId);
+                        });
+                        return true;
+                      }
+                      return false;
+                    },
+                    child: FixedIdeaCard(
+                      idea: thought,
+                      colors: colors,
+                      provider: provider,
+                      isDesktop: isDesktop,
+                      onReadMore: () => _showReadMorePopup(
+                        context: context,
+                        idea: thought,
+                        provider: provider,
+                        colors: colors,
+                        settings: settings,
+                      ),
+                      onMoreOptions: () =>
+                          _showIdeaContextMenu(context, provider, thought, colors),
+                    ),
+                  )
+                : FixedIdeaCard(
+                    idea: thought,
+                    colors: colors,
+                    provider: provider,
+                    isDesktop: isDesktop,
+                    onReadMore: () => _showReadMorePopup(
+                      context: context,
+                      idea: thought,
+                      provider: provider,
+                      colors: colors,
+                      settings: settings,
+                    ),
+                    onMoreOptions: () =>
+                        _showIdeaContextMenu(context, provider, thought, colors),
+                  ),
           ),
           const SizedBox(height: 16),
 
@@ -1055,15 +1217,16 @@ class _StreamScreenState extends State<StreamScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 52px Search Buckets field (filters bucket NAMES only, case-insensitive, 150ms debounce)
-        Container(
-          key: _searchBucketsFieldKey,
-          height: 52,
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: colors.line),
-          ),
-          child: TextField(
+        SwipeExclusion(
+          child: Container(
+            key: _searchBucketsFieldKey,
+            height: 52,
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line),
+            ),
+            child: TextField(
             controller: _bucketSearchController,
             onChanged: (val) {
               _bucketDebounceTimer?.cancel();
@@ -1106,7 +1269,8 @@ class _StreamScreenState extends State<StreamScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 14),
+      ),
+      const SizedBox(height: 14),
 
         // 2-at-a-time Slider
         Builder(
@@ -1281,29 +1445,31 @@ class _StreamScreenState extends State<StreamScreen> {
                 // 2-at-a-time Slider
                 SizedBox(
                   height: 135,
-                  child: PageView.builder(
-                    controller: _bucketPageController,
-                    onPageChanged: (idx) {
-                      SoundService.instance.play(SoundEvent.swipe, settings: settings);
-                      setState(() => _bucketCurrentPage = idx);
-                    },
-                    itemCount: pageCount,
-                    itemBuilder: (ctx, pageIndex) {
-                      final firstIndex = pageIndex * 2;
-                      final secondIndex = firstIndex + 1;
+                  child: SwipeExclusion(
+                    child: PageView.builder(
+                      controller: _bucketPageController,
+                      onPageChanged: (idx) {
+                        SoundService.instance.play(SoundEvent.swipe, settings: settings);
+                        setState(() => _bucketCurrentPage = idx);
+                      },
+                      itemCount: pageCount,
+                      itemBuilder: (ctx, pageIndex) {
+                        final firstIndex = pageIndex * 2;
+                        final secondIndex = firstIndex + 1;
 
-                      return Row(
-                        children: [
-                          Expanded(child: cards[firstIndex]),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: secondIndex < cards.length
-                                ? cards[secondIndex]
-                                : const SizedBox.shrink(),
-                          ),
-                        ],
-                      );
-                    },
+                        return Row(
+                          children: [
+                            Expanded(child: cards[firstIndex]),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: secondIndex < cards.length
+                                  ? cards[secondIndex]
+                                  : const SizedBox.shrink(),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
 
@@ -2119,38 +2285,120 @@ class _StreamScreenState extends State<StreamScreen> {
   }) {
     final ideaName = TitleGenerator.getIdeaName(idea);
 
+    final cardWidget = SortedIdeaCard(
+      idea: idea,
+      colors: colors,
+      provider: provider,
+      settings: settings,
+      isStartHere: isFirst,
+      isDesktop: isDesktop,
+      onReadMore: () => _showReadMorePopup(
+        context: context,
+        idea: idea,
+        provider: provider,
+        colors: colors,
+        settings: settings,
+      ),
+      onMoreOptions: () =>
+          _showIdeaContextMenu(context, provider, idea, colors),
+      onMarkDone: () {
+        provider.markDone(idea['id'], true);
+        SoundService.instance.play(SoundEvent.done, settings: settings);
+        _showUndoSnackBar('Marked "$ideaName" as done', () {
+          provider.markDone(idea['id'], false);
+        });
+      },
+    );
+
+    if (settings.swipeActionsOnIdeas) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        child: Dismissible(
+          key: ValueKey('ranked_idea_${idea['id']}'),
+          direction: DismissDirection.horizontal,
+          dismissThresholds: const {
+            DismissDirection.startToEnd: 0.40,
+            DismissDirection.endToStart: 0.40,
+          },
+          background: Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: colors.done,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle, color: Colors.black, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'Mark done',
+                  style: appFont(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          secondaryBackground: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: colors.bad,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Move to Trash',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.delete, color: Colors.white, size: 24),
+              ],
+            ),
+          ),
+          confirmDismiss: (direction) async {
+            if (direction == DismissDirection.startToEnd) {
+              provider.markDone(idea['id'], true);
+              SoundService.instance.play(SoundEvent.done, settings: settings);
+              _showUndoSnackBar('Marked "$ideaName" as done', () {
+                provider.markDone(idea['id'], false);
+              });
+              return true;
+            } else if (direction == DismissDirection.endToStart) {
+              provider.moveToTrash(idea['id']);
+              SoundService.instance.play(SoundEvent.trash, settings: settings);
+              _showUndoSnackBar('Moved "$ideaName" to trash', () {
+                provider.restoreFromTrash(idea['id']);
+              });
+              return true;
+            }
+            return false;
+          },
+          child: cardWidget,
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      child: SortedIdeaCard(
-        idea: idea,
-        colors: colors,
-        provider: provider,
-        settings: settings,
-        isStartHere: isFirst,
-        isDesktop: isDesktop,
-        onReadMore: () => _showReadMorePopup(
-          context: context,
-          idea: idea,
-          provider: provider,
-          colors: colors,
-          settings: settings,
-        ),
-        onMoreOptions: () =>
-            _showIdeaContextMenu(context, provider, idea, colors),
-        onMarkDone: () {
-          provider.markDone(idea['id'], true);
-          SoundService.instance.play(SoundEvent.done, settings: settings);
-          _showUndoSnackBar('Marked "$ideaName" as done', () {
-            provider.markDone(idea['id'], false);
-          });
-        },
-      ),
+      child: cardWidget,
     );
   }
 
   // ==========================================================================
   // TAB 3: DONE TAB (Section 5: Green File Icons Grid + Peek Sheet)
   // ==========================================================================
+  // ignore: unused_element
   Widget _buildDoneTab(ThoughtProvider provider, AppColors colors) {
     final doneList = provider.doneThoughts;
 

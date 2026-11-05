@@ -29,6 +29,7 @@ import 'starter_buckets_screen.dart';
 import 'utils/global_error_handler.dart';
 import 'services/self_check_service.dart';
 import 'settings/diagnostics_screen.dart';
+import 'widgets/swipe_tabs.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -237,6 +238,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
+  double _liveMainPage = 0.0;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -259,89 +262,139 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final nav = context.watch<NavigationNotifier>();
     final settings = context.watch<SettingsService>();
+    final bgRecording = context.watch<BackgroundRecordingService>();
     final colors = AppColors.of(settings.theme);
     final currentIndex = nav.mainTabIndex;
     final bool isBucketOpen = (currentIndex == 1 && nav.streamSubTab == 'sorted' && nav.selectedBucket != null);
 
-    final pages = [
-      const CaptureScreen(),
-      const StreamScreen(),
-    ];
+    final liveIndex = _liveMainPage.round().clamp(0, 1);
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (nav.selectedBucket != null) {
-          nav.selectBucket(null);
-          return;
-        }
-        if (nav.isTrashOpen) {
-          nav.closeTrash();
-          return;
-        }
-        if (!kIsWeb && Platform.isAndroid) {
-          SystemNavigator.pop();
-        }
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.pageDown, control: true): () {
+          if (nav.mainTabIndex < 1) {
+            nav.setMainTab(1);
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.pageUp, control: true): () {
+          if (nav.mainTabIndex > 0) {
+            nav.setMainTab(0);
+          }
+        },
       },
-      child: Scaffold(
-        backgroundColor: colors.bg,
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Text(
-            'BRAIN DUMP',
-            style: TextStyle(
-              color: colors.gold,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 4,
-              fontSize: 17,
-            ),
-          ),
-          centerTitle: true,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (nav.selectedBucket != null) {
+            nav.selectBucket(null);
+            return;
+          }
+          if (nav.isTrashOpen) {
+            nav.closeTrash();
+            return;
+          }
+          if (!kIsWeb && Platform.isAndroid) {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
           backgroundColor: colors.bg,
-          elevation: 0,
-          actions: [
-            IconButton(
-              icon: Icon(Icons.settings_outlined, color: colors.mute),
-              tooltip: 'Settings: connect Groq',
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (_) => const SettingsModal(),
-                );
-              },
-            ),
-          ],
-        ),
-        body: pages[currentIndex],
-        bottomNavigationBar: isBucketOpen
-            ? null
-            : Container(
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: colors.line, width: 2)),
-                ),
-                child: BottomNavigationBar(
-            currentIndex: currentIndex,
-            onTap: (index) => context.read<NavigationNotifier>().setMainTab(index),
-            backgroundColor: colors.card,
-            selectedItemColor: colors.gold,
-            unselectedItemColor: colors.mute,
-            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.mic_outlined, size: 26),
-                activeIcon: Icon(Icons.mic, size: 26),
-                label: 'Capture',
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            title: Text(
+              'BRAIN DUMP',
+              style: TextStyle(
+                color: colors.gold,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 4,
+                fontSize: 17,
               ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.auto_awesome_outlined, size: 26),
-                activeIcon: Icon(Icons.auto_awesome, size: 26),
-                label: 'Stream',
+            ),
+            centerTitle: true,
+            backgroundColor: colors.bg,
+            elevation: 0,
+            actions: [
+              IconButton(
+                icon: Icon(Icons.settings_outlined, color: colors.mute),
+                tooltip: 'Settings: connect Groq',
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => const SettingsModal(),
+                  );
+                },
               ),
             ],
+          ),
+          body: SwipeTabs(
+            currentIndex: currentIndex,
+            tabLabels: const ['Capture', 'Stream'],
+            enabled: settings.swipeCaptureStream &&
+                !isBucketOpen &&
+                !nav.isTrashOpen &&
+                !bgRecording.isRecording &&
+                MediaQuery.viewInsetsOf(context).bottom == 0,
+            thresholdFraction: settings.swipeThresholdFraction,
+            isRecording: bgRecording.isRecording,
+            onDragProgress: (page) {
+              if ((page - _liveMainPage).abs() > 0.05) {
+                setState(() => _liveMainPage = page);
+              }
+            },
+            onTabChanged: (index) {
+              setState(() => _liveMainPage = index.toDouble());
+              nav.setMainTab(index);
+            },
+            children: const [
+              CaptureScreen(),
+              StreamScreen(),
+            ],
+          ),
+          bottomNavigationBar: isBucketOpen
+              ? null
+              : Container(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: colors.line, width: 2)),
+                  ),
+                  child: BottomNavigationBar(
+              currentIndex: liveIndex,
+              onTap: (index) {
+                setState(() => _liveMainPage = index.toDouble());
+                context.read<NavigationNotifier>().setMainTab(index);
+              },
+              backgroundColor: colors.card,
+              selectedItemColor: colors.gold,
+              unselectedItemColor: colors.mute,
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              items: [
+                BottomNavigationBarItem(
+                  icon: Semantics(
+                    label: 'Capture, tab 1 of 2${liveIndex == 0 ? ', selected' : ''}',
+                    child: const Icon(Icons.mic_outlined, size: 26),
+                  ),
+                  activeIcon: Semantics(
+                    label: 'Capture, tab 1 of 2, selected',
+                    child: const Icon(Icons.mic, size: 26),
+                  ),
+                  label: 'Capture',
+                ),
+                BottomNavigationBarItem(
+                  icon: Semantics(
+                    label: 'Stream, tab 2 of 2${liveIndex == 1 ? ', selected' : ''}',
+                    child: const Icon(Icons.auto_awesome_outlined, size: 26),
+                  ),
+                  activeIcon: Semantics(
+                    label: 'Stream, tab 2 of 2, selected',
+                    child: const Icon(Icons.auto_awesome, size: 26),
+                  ),
+                  label: 'Stream',
+                ),
+              ],
+            ),
           ),
         ),
       ),
