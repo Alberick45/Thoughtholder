@@ -126,7 +126,9 @@ CREATE TABLE thoughts (
   updated_by TEXT,
   revision INTEGER DEFAULT 1,
   title TEXT,
-  title_source TEXT
+  title_source TEXT,
+  skipped_at INTEGER,
+  skip_count INTEGER DEFAULT 0
 )
 ''');
 
@@ -217,6 +219,12 @@ CREATE TABLE bucket_aliases (
     }
     if (!existingTCols.contains('title_source')) {
       await db.execute('ALTER TABLE thoughts ADD COLUMN title_source TEXT');
+    }
+    if (!existingTCols.contains('skipped_at')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN skipped_at INTEGER');
+    }
+    if (!existingTCols.contains('skip_count')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN skip_count INTEGER DEFAULT 0');
     }
 
     // 2. Ensure buckets table and columns exist

@@ -647,6 +647,32 @@ class ThoughtBundleService {
     int conflictCount = 0;
     int addedBucketsCount = 0;
 
+    // Ensure thoughts columns exist and sanitize rows against actual table schema
+    final tColsInfo = await database.rawQuery('PRAGMA table_info(thoughts)');
+    final existingCols = tColsInfo.map((c) => c['name'] as String).toSet();
+    if (!existingCols.contains('skipped_at')) {
+      try {
+        await database.execute('ALTER TABLE thoughts ADD COLUMN skipped_at INTEGER');
+        existingCols.add('skipped_at');
+      } catch (_) {}
+    }
+    if (!existingCols.contains('skip_count')) {
+      try {
+        await database.execute('ALTER TABLE thoughts ADD COLUMN skip_count INTEGER DEFAULT 0');
+        existingCols.add('skip_count');
+      } catch (_) {}
+    }
+
+    Map<String, dynamic> sanitizeThoughtRow(Map<String, dynamic> row) {
+      final sanitized = <String, dynamic>{};
+      for (final entry in row.entries) {
+        if (existingCols.contains(entry.key)) {
+          sanitized[entry.key] = entry.value;
+        }
+      }
+      return sanitized;
+    }
+
     // 2. Apply in ONE single database transaction (atomic rollback on error)
     await database.transaction((txn) async {
       // Step A: Insert buckets to add
@@ -677,7 +703,7 @@ class ThoughtBundleService {
             ? idea['created_at'] as int
             : (int.tryParse(idea['created_at']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch);
 
-        await txn.insert('thoughts', {
+        await txn.insert('thoughts', sanitizeThoughtRow({
           'id': idea['uuid']?.toString() ?? '',
           'thought_id': idea['uuid']?.toString() ?? '',
           'content': idea['text']?.toString() ?? '',
@@ -697,7 +723,7 @@ class ThoughtBundleService {
           'updated_at': idea['updated_at']?.toString(),
           'skipped_at': idea['skipped_at'] is int ? idea['skipped_at'] as int : null,
           'skip_count': idea['skip_count'] as int? ?? 0,
-        });
+        }));
         insertedCount++;
       }
 
@@ -710,7 +736,7 @@ class ThoughtBundleService {
 
         await txn.update(
           'thoughts',
-          {
+          sanitizeThoughtRow({
             'content': idea['text']?.toString() ?? '',
             'title': idea['title']?.toString() ?? '',
             'title_source': idea['title_source']?.toString() ?? 'auto',
@@ -724,7 +750,7 @@ class ThoughtBundleService {
             'updated_at': idea['updated_at']?.toString(),
             'skipped_at': idea['skipped_at'] is int ? idea['skipped_at'] as int : null,
             'skip_count': idea['skip_count'] as int? ?? 0,
-          },
+          }),
           where: 'id = ?',
           whereArgs: [uuid],
         );
@@ -739,7 +765,7 @@ class ThoughtBundleService {
         final conflictUuid = 't-conflict-${DateTime.now().millisecondsSinceEpoch}-${rng.nextInt(999999)}';
         final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-        await txn.insert('thoughts', {
+        await txn.insert('thoughts', sanitizeThoughtRow({
           'id': conflictUuid,
           'thought_id': conflictUuid,
           'content': idea['text']?.toString() ?? '',
@@ -759,7 +785,7 @@ class ThoughtBundleService {
           'updated_at': DateTime.now().toUtc().toIso8601String(),
           'skipped_at': null,
           'skip_count': 0,
-        });
+        }));
         conflictCount++;
       }
     });
