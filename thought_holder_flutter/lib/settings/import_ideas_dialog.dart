@@ -8,6 +8,7 @@ import '../app_theme.dart';
 import '../services/thought_bundle_service.dart';
 import '../settings_service.dart';
 import '../utils/app_logger.dart';
+import '../widgets/keyboard_safe_sheet.dart';
 
 /// Helper to launch file picking and import process from Settings.
 class ImportIdeasFlow {
@@ -159,23 +160,48 @@ class ImportIdeasFlow {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => KeyboardSafeSheet(
+          isDialog: true,
+          maxWidth: 480,
           backgroundColor: colors.bg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: colors.line),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.line),
+          header: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Icon(Icons.lock_outline, color: colors.gold, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Passphrase Protected',
+                  style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+              ],
+            ),
           ),
-          title: Row(
-            children: [
-              Icon(Icons.lock_outline, color: colors.gold, size: 22),
-              const SizedBox(width: 10),
-              Text(
-                'Passphrase Protected',
-                style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 17),
-              ),
-            ],
+          pinnedFooter: Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: Text('Cancel', style: appFont(color: colors.mute)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.gold,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Unlock'),
+                ),
+              ],
+            ),
           ),
-          content: Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -211,21 +237,6 @@ class ImportIdeasFlow {
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(null),
-              child: Text('Cancel', style: appFont(color: colors.mute)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.gold,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('Unlock'),
-            ),
-          ],
         ),
       ),
     );

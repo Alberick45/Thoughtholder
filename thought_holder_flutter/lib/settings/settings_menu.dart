@@ -13,6 +13,7 @@ import 'sounds_group.dart';
 import 'notifications_group.dart';
 import 'devices_group.dart';
 import 'computer_group.dart';
+import '../widgets/keyboard_safe_sheet.dart';
 import 'diagnostics_screen.dart';
 import 'settings_registry.dart';
 
@@ -93,15 +94,11 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
     final startupStatus = settings.launchAtStartup ? 'on' : 'off';
     final computerSummary = 'Tray $trayStatus · startup $startupStatus';
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.94,
-      ),
+    return KeyboardSafeSheet(
+      openingHeight: MediaQuery.of(context).size.height * 0.94,
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-      decoration: BoxDecoration(
-        color: colors.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: colors.bg,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

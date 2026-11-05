@@ -7,6 +7,7 @@ import '../app_theme.dart';
 import '../services/thought_bundle_service.dart';
 import '../settings_service.dart';
 import '../utils/app_logger.dart';
+import '../widgets/keyboard_safe_sheet.dart';
 
 /// Modal dialog for configuring and executing an export to `.thoughtbundle`.
 class ExportIdeasDialog extends StatefulWidget {
@@ -209,23 +210,54 @@ class _ExportIdeasDialogState extends State<ExportIdeasDialog> {
       colors = AppColors.dark;
     }
 
-    return AlertDialog(
+    return KeyboardSafeSheet(
+      isDialog: true,
+      maxWidth: 500,
       backgroundColor: colors.bg,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: colors.line),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: colors.line),
+      header: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          children: [
+            Icon(Icons.file_upload_outlined, color: colors.gold, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              'Export my ideas',
+              style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
       ),
-      title: Row(
-        children: [
-          Icon(Icons.file_upload_outlined, color: colors.gold, size: 24),
-          const SizedBox(width: 10),
-          Text(
-            'Export my ideas',
-            style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 18),
-          ),
-        ],
+      pinnedFooter: Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: _isExporting ? null : () => Navigator.of(context).pop(),
+              child: Text('Cancel', style: appFont(color: colors.mute)),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _isExporting ? null : () => _handleExport(colors),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.gold,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: _isExporting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Text('Export'),
+            ),
+          ],
+        ),
       ),
-      content: SingleChildScrollView(
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,27 +389,6 @@ class _ExportIdeasDialogState extends State<ExportIdeasDialog> {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isExporting ? null : () => Navigator.of(context).pop(),
-          child: Text('Cancel', style: appFont(color: colors.mute)),
-        ),
-        ElevatedButton(
-          onPressed: _isExporting ? null : () => _handleExport(colors),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: colors.gold,
-            foregroundColor: Colors.black,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          child: _isExporting
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                )
-              : const Text('Export'),
-        ),
-      ],
     );
   }
 }

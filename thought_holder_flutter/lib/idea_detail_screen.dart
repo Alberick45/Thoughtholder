@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'thought_provider.dart';
 import 'utils/nlp_engine.dart';
 import 'utils/title_generator.dart';
+import 'widgets/keyboard_safe_sheet.dart';
 
 class IdeaDetailScreen extends StatefulWidget {
   final Map<String, dynamic> thought;
@@ -52,10 +53,50 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => KeyboardSafeSheet(
+        isDialog: true,
+        maxWidth: 480,
         backgroundColor: Theme.of(context).colorScheme.surface,
-        title: Text('Edit $thoughtId', style: const TextStyle(color: Colors.white)),
-        content: TextField(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white24),
+        header: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('Edit $thoughtId',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
+        ),
+        pinnedFooter: Padding(
+          padding: const EdgeInsets.only(top: 14),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final newContent = controller.text.trim();
+                  if (newContent.isNotEmpty) {
+                    Navigator.pop(ctx);
+                    final now = DateTime.now().millisecondsSinceEpoch;
+                    await provider.updateContent(thought['id'], newContent,
+                        editedAt: now);
+                    setState(() {
+                      keywords =
+                          NLPEngine.extractKeywords(newContent, limit: 6);
+                    });
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+        child: TextField(
           controller: controller,
           autofocus: true,
           minLines: 4,
@@ -67,27 +108,6 @@ class _IdeaDetailScreenState extends State<IdeaDetailScreen> {
             border: OutlineInputBorder(),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newContent = controller.text.trim();
-              if (newContent.isNotEmpty) {
-                Navigator.pop(ctx);
-                final now = DateTime.now().millisecondsSinceEpoch;
-                await provider.updateContent(thought['id'], newContent,
-                    editedAt: now);
-                setState(() {
-                  keywords = NLPEngine.extractKeywords(newContent, limit: 6);
-                });
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }

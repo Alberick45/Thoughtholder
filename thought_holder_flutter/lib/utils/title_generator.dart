@@ -9,7 +9,7 @@ class TitleGenerator {
   );
 
   static final RegExp _trailingPunctuationRegex = RegExp(
-    r'[-—–,.\s:;!?…]+$',
+    r'''[-—–,.\s:;!?…"“”'"]+$''',
   );
 
   /// Generates a concise title from the idea's content following strict auto-name rules.
@@ -30,8 +30,8 @@ class TitleGenerator {
       }
     }
 
-    // Strip any leading punctuation left after filler removal
-    text = text.replaceAll(RegExp(r'^[-—–,.\s:;!?…]+'), '').trim();
+    // Strip any leading punctuation and quotes left after filler removal
+    text = text.replaceAll(RegExp(r'''^[-—–,.\s:;!?…"“”'"]+'''), '').trim();
 
     if (text.isEmpty) {
       return 'Quick note';
@@ -53,10 +53,29 @@ class TitleGenerator {
       result = sub;
     }
 
-    // Remove trailing punctuation
+    // Remove trailing punctuation and quotes
     result = result.replaceAll(_trailingPunctuationRegex, '').trim();
 
-    if (result.isEmpty || result.toLowerCase() == 'untitled') {
+    // A title must contain at least one letter or digit
+    if (!RegExp(r'[a-zA-Z0-9]').hasMatch(result)) {
+      final firstAlnum = rawContent.indexOf(RegExp(r'[a-zA-Z0-9]'));
+      if (firstAlnum != -1) {
+        String sub = rawContent.substring(firstAlnum).trim();
+        if (sub.length > 40) {
+          final cut = sub.substring(0, 40);
+          final lastSpace = cut.lastIndexOf(' ');
+          sub = lastSpace > 0 ? cut.substring(0, lastSpace) : cut;
+        }
+        sub = sub.replaceAll(_trailingPunctuationRegex, '').trim();
+        if (RegExp(r'[a-zA-Z0-9]').hasMatch(sub)) {
+          result = sub;
+        }
+      }
+    }
+
+    if (result.isEmpty ||
+        result.toLowerCase() == 'untitled' ||
+        !RegExp(r'[a-zA-Z0-9]').hasMatch(result)) {
       return 'Quick note';
     }
 
@@ -68,9 +87,23 @@ class TitleGenerator {
 
   static String getIdeaName(Map<String, dynamic> thought) {
     final title = (thought['title'] as String?)?.trim();
-    if (title != null && title.isNotEmpty && title.toLowerCase() != 'untitled') {
-      return title;
+    final titleSource = thought['title_source'] as String?;
+
+    // Never touch titles with title_source = 'user'
+    if (titleSource == 'user') {
+      if (title != null && title.isNotEmpty) {
+        return title;
+      }
+    } else {
+      // Must contain at least one letter or digit
+      if (title != null &&
+          title.isNotEmpty &&
+          title.toLowerCase() != 'untitled' &&
+          RegExp(r'[a-zA-Z0-9]').hasMatch(title)) {
+        return title;
+      }
     }
+
     final content = (thought['content'] as String?) ?? '';
     return generate(content);
   }

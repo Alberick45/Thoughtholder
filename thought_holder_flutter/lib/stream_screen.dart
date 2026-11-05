@@ -14,6 +14,7 @@ import 'sound_service.dart';
 import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
+import 'widgets/keyboard_safe_sheet.dart';
 
 class StreamScreen extends StatefulWidget {
   const StreamScreen({super.key});
@@ -23,6 +24,7 @@ class StreamScreen extends StatefulWidget {
 }
 
 class _StreamScreenState extends State<StreamScreen> {
+  bool _isModalOpen = false;
   bool _splitPromptChecked = false;
   int _visibleBucketIdeasCount = 20;
   int _visibleDoneCount = 9; // UPDATE 3: 9 at a time (3x3)
@@ -477,20 +479,24 @@ class _StreamScreenState extends State<StreamScreen> {
             ],
           ),
           // Floating 3D Trash Button (Bottom Right)
-          Positioned(
-            right: 20,
-            bottom: 20,
-            child: _Floating3DTrashButton(
-              trashCount: provider.trashCount,
-              isOpen: nav.isTrashOpen,
-              colors: colors,
-              onTap: () {
-                setState(() => _deletingForeverId = null);
-                SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
-                nav.toggleTrash();
-              },
+          if (!nav.isTrashOpen &&
+              MediaQuery.viewInsetsOf(context).bottom == 0 &&
+              !_isModalOpen &&
+              (ModalRoute.of(context)?.isCurrent ?? true))
+            Positioned(
+              right: 20,
+              bottom: 20,
+              child: _Floating3DTrashButton(
+                trashCount: provider.trashCount,
+                isOpen: nav.isTrashOpen,
+                colors: colors,
+                onTap: () {
+                  setState(() => _deletingForeverId = null);
+                  SoundService.instance.play(SoundEvent.tabSwitch, settings: settings);
+                  nav.toggleTrash();
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -2945,25 +2951,74 @@ class _StreamScreenState extends State<StreamScreen> {
     final nameController = TextEditingController();
     String selectedIcon = 'folder';
 
+    setState(() => _isModalOpen = true);
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
-          return AlertDialog(
+          return KeyboardSafeSheet(
+            isDialog: true,
             backgroundColor: colors.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-              side: BorderSide(color: colors.gold, width: 1.5),
-            ),
-            title: Text(
-              'New bucket',
-              style: appFont(
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: colors.gold, width: 1.5),
+            header: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'New bucket',
+                style: appFont(
+                  color: colors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            content: SingleChildScrollView(
+            pinnedFooter: Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('Cancel', style: appFont(color: colors.mute)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final name = nameController.text.trim();
+                      if (name.isNotEmpty) {
+                        final settings = context.read<SettingsService>();
+                        Navigator.pop(ctx);
+                        await provider.addBucket(name, icon: selectedIcon);
+                        SoundService.instance.play(SoundEvent.save, settings: settings);
+                        if (fileThoughtId != null) {
+                          await provider.fileThought(fileThoughtId, name);
+                          _showUndoSnackBar('Filed to $name', () {
+                            provider.unfileThought(fileThoughtId);
+                          });
+                          setState(() {});
+                        } else {
+                          _showUndoSnackBar('Created bucket "$name"', () {});
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.gold,
+                      foregroundColor: Colors.black,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(
+                      'Save',
+                      style: appFont(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3029,51 +3084,12 @@ class _StreamScreenState extends State<StreamScreen> {
                 ],
               ),
             ),
-            actionsPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('Cancel', style: appFont(color: colors.mute)),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final name = nameController.text.trim();
-                  if (name.isNotEmpty) {
-                    final settings = context.read<SettingsService>();
-                    Navigator.pop(ctx);
-                    await provider.addBucket(name, icon: selectedIcon);
-                    SoundService.instance.play(SoundEvent.save, settings: settings);
-                    if (fileThoughtId != null) {
-                      await provider.fileThought(fileThoughtId, name);
-                      _showUndoSnackBar('Filed to $name', () {
-                        provider.unfileThought(fileThoughtId);
-                      });
-                      setState(() {});
-                    } else {
-                      _showUndoSnackBar('Created bucket "$name"', () {});
-                    }
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.gold,
-                  foregroundColor: Colors.black,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Text(
-                  'Save',
-                  style: appFont(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
           );
         },
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) setState(() => _isModalOpen = false);
+    });
   }
 
   // --- Bucket Context Menu (Rename, Change icon, Delete) ---
@@ -3156,14 +3172,50 @@ class _StreamScreenState extends State<StreamScreen> {
     AppColors colors,
   ) {
     final controller = TextEditingController(text: oldName);
+    setState(() => _isModalOpen = true);
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => KeyboardSafeSheet(
+        isDialog: true,
         backgroundColor: colors.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Rename bucket',
-            style: appFont(color: colors.text, fontWeight: FontWeight.bold)),
-        content: TextField(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.line),
+        header: Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Text(
+            'Rename bucket',
+            style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+        ),
+        pinnedFooter: Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: appFont(color: colors.mute)),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final newName = controller.text.trim();
+                  if (newName.isNotEmpty && newName != oldName) {
+                    final settings = context.read<SettingsService>();
+                    Navigator.pop(ctx);
+                    await provider.renameBucket(oldName, newName);
+                    SoundService.instance.play(SoundEvent.save, settings: settings);
+                    _showUndoSnackBar('Renamed bucket to "$newName"', () {});
+                  }
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: colors.gold),
+                child: Text('Save',
+                    style: appFont(color: Colors.black, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+        child: TextField(
           controller: controller,
           autofocus: true,
           style: appFont(color: colors.text),
@@ -3175,29 +3227,10 @@ class _StreamScreenState extends State<StreamScreen> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: appFont(color: colors.mute)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newName = controller.text.trim();
-              if (newName.isNotEmpty && newName != oldName) {
-                final settings = context.read<SettingsService>();
-                Navigator.pop(ctx);
-                await provider.renameBucket(oldName, newName);
-                SoundService.instance.play(SoundEvent.save, settings: settings);
-                _showUndoSnackBar('Renamed bucket to "$newName"', () {});
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: colors.gold),
-            child: Text('Save',
-                style: appFont(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) setState(() => _isModalOpen = false);
+    });
   }
 
   void _showChangeIconDialog(
@@ -3695,10 +3728,9 @@ class _StreamScreenState extends State<StreamScreen> {
     bool isAdding = false;
     String? errorMessage;
 
-    showModalBottomSheet(
+    setState(() => _isModalOpen = true);
+    KeyboardSafeSheet.show(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (modalCtx) {
         return StatefulBuilder(
           builder: (ctx, setPopupState) {
@@ -3798,27 +3830,13 @@ class _StreamScreenState extends State<StreamScreen> {
               }
             }
 
-            return Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.85,
-              ),
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 18,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              decoration: BoxDecoration(
-                color: colors.bg,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(22)),
-                border: Border.all(color: colors.line),
-              ),
-              child: Column(
+            return KeyboardSafeSheet(
+              openingHeight: 474.0,
+              backgroundColor: colors.bg,
+              header: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Pinned Heading with Close Button
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -3836,7 +3854,7 @@ class _StreamScreenState extends State<StreamScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Adding "$ideaName" to…',
+                              'Adding "${KeyboardSafeSheet.formatIdeaHeading(idea)}" to…',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: appFont(
@@ -3855,10 +3873,15 @@ class _StreamScreenState extends State<StreamScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
+                ],
+              ),
+              pinnedHeader: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   // "Find or create a bucket" Field
                   Container(
-                    height: 48,
+                    height: 52,
                     decoration: BoxDecoration(
                       color: colors.card,
                       borderRadius: BorderRadius.circular(12),
@@ -3894,10 +3917,52 @@ class _StreamScreenState extends State<StreamScreen> {
                             : null,
                         border: InputBorder.none,
                         contentPadding:
-                            const EdgeInsets.symmetric(vertical: 12),
+                            const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                   ),
+
+                  // The Create row sits directly under search field, always visible above keyboard (>= 56px)
+                  if (showCreateRow) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: colors.gold.withValues(alpha: 0.6)),
+                      ),
+                      child: InkWell(
+                        onTap: isAdding
+                            ? null
+                            : () => onSelectBucket(trimmedQuery),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_circle,
+                                  color: colors.gold, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Create "$trimmedQuery"',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: appFont(
+                                    color: colors.gold,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
 
                   if (errorMessage != null) ...[
                     const SizedBox(height: 8),
@@ -3908,7 +3973,7 @@ class _StreamScreenState extends State<StreamScreen> {
                   ],
 
                   if (isAdding) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -3933,135 +3998,85 @@ class _StreamScreenState extends State<StreamScreen> {
                     ),
                   ],
 
-                  const SizedBox(height: 12),
-
-                  // Scrolling List of Buckets + Create Row
-                  Flexible(
-                    child: ListView(
-                      shrinkWrap: true,
-                      children: [
-                        // Create row
-                        if (showCreateRow) ...[
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: colors.card,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                  color: colors.gold.withValues(alpha: 0.6)),
-                            ),
-                            child: SizedBox(
-                              height: 48,
-                              child: InkWell(
-                                onTap: isAdding
-                                    ? null
-                                    : () => onSelectBucket(trimmedQuery),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.add_circle,
-                                          color: colors.gold, size: 20),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          'Create "$trimmedQuery"',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: appFont(
-                                            color: colors.gold,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-
-                        if (filteredBuckets.isEmpty && !showCreateRow)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: Text(
-                                query.isEmpty
-                                    ? 'No other buckets available'
-                                    : 'No buckets matching "$query"',
-                                style:
-                                    appFont(color: colors.mute, fontSize: 14),
-                              ),
-                            ),
-                          ),
-
-                        ...filteredBuckets.map((b) {
-                          final name = b['name'] as String;
-                          final iconKey = (b['icon'] as String?) ?? 'folder';
-                          final iconData =
-                              kBucketIcons[iconKey] ?? Icons.folder_outlined;
-                          final count = provider.getIdeaCountForBucket(name);
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 6),
-                            decoration: BoxDecoration(
-                              color: colors.card,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: colors.line),
-                            ),
-                            child: SizedBox(
-                              height: 48,
-                              child: InkWell(
-                                onTap: isAdding
-                                    ? null
-                                    : () => onSelectBucket(name),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14),
-                                  child: Row(
-                                    children: [
-                                      Icon(iconData,
-                                          color: colors.gold, size: 20),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: appFont(
-                                            color: colors.text,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                      Text(
-                                        '$count ${count == 1 ? 'idea' : 'ideas'}',
-                                        style: appFont(
-                                            color: colors.mute, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
+                  const SizedBox(height: 10),
+                ],
+              ),
+              child: ListView(
+                children: [
+                  if (filteredBuckets.isEmpty && !showCreateRow)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text(
+                          query.isEmpty
+                              ? 'No other buckets available'
+                              : 'No buckets matching "$query"',
+                          style:
+                              appFont(color: colors.mute, fontSize: 14),
+                        ),
+                      ),
                     ),
-                  ),
+
+                  ...filteredBuckets.map((b) {
+                    final name = b['name'] as String;
+                    final iconKey = (b['icon'] as String?) ?? 'folder';
+                    final iconData =
+                        kBucketIcons[iconKey] ?? Icons.folder_outlined;
+                    final count = provider.getIdeaCountForBucket(name);
+
+                    return Container(
+                      height: 56,
+                      margin: const EdgeInsets.only(bottom: 6),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.line),
+                      ),
+                      child: InkWell(
+                        onTap: isAdding
+                            ? null
+                            : () => onSelectBucket(name),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14),
+                          child: Row(
+                            children: [
+                              Icon(iconData,
+                                  color: colors.gold, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: appFont(
+                                    color: colors.text,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '$count ${count == 1 ? 'idea' : 'ideas'}',
+                                style: appFont(
+                                    color: colors.mute, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             );
           },
         );
       },
-    );
+    ).whenComplete(() {
+      if (mounted) setState(() => _isModalOpen = false);
+    });
   }
 
   // --- Read More Full Detail Popup (Section 1: Fixed-Size Card Popup) ---
@@ -4310,44 +4325,95 @@ class _StreamScreenState extends State<StreamScreen> {
     bool isSuggesting = false;
     String? suggestionStatus;
 
+    setState(() => _isModalOpen = true);
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (dialogCtx, setDialogState) => AlertDialog(
+        builder: (dialogCtx, setDialogState) => KeyboardSafeSheet(
+          isDialog: true,
+          maxWidth: 540,
           backgroundColor: colors.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: colors.gold, width: 1.5),
-          ),
-          title: Row(
-            children: [
-              Icon(Icons.edit_note, color: colors.gold, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Edit Idea',
-                  style: appFont(
-                    color: colors.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.gold, width: 1.5),
+          header: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Icon(Icons.edit_note, color: colors.gold, size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Edit Idea',
+                    style: appFont(
+                      color: colors.text,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-              Text(
-                thoughtId,
-                style: appFont(
-                  color: colors.mute,
-                  fontSize: 12,
+                Text(
+                  thoughtId,
+                  style: appFont(
+                    color: colors.mute,
+                    fontSize: 12,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+          pinnedFooter: Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                SizedBox(
+                  height: 48,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: Icon(Icons.close, color: colors.mute, size: 18),
+                    label: Text('Cancel', style: appFont(color: colors.mute)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final newContent = contentController.text.trim();
+                      final newTitle = titleController.text.trim();
+                      if (newContent.isNotEmpty) {
+                        final s = context.read<SettingsService>();
+                        Navigator.pop(ctx);
+                        final now = DateTime.now().millisecondsSinceEpoch;
+                        if (newTitle.isNotEmpty && newTitle != currentTitle) {
+                          await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
+                        }
+                        await provider.updateContent(idea['id'], newContent, editedAt: now);
+                        SoundService.instance.play(SoundEvent.save, settings: s);
+                        _showUndoSnackBar('Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}"', () {});
+                      }
+                    },
+                    icon: const Icon(Icons.check, size: 18),
+                    label: Text(
+                      'Save',
+                      style: appFont(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.gold,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -4492,53 +4558,11 @@ class _StreamScreenState extends State<StreamScreen> {
                 ],
               ),
             ),
-          ),
-          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          actions: [
-            SizedBox(
-              height: 48,
-              child: TextButton.icon(
-                onPressed: () => Navigator.pop(ctx),
-                icon: Icon(Icons.close, color: colors.mute, size: 18),
-                label: Text('Cancel', style: appFont(color: colors.mute)),
-              ),
-            ),
-            SizedBox(
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  final newContent = contentController.text.trim();
-                  final newTitle = titleController.text.trim();
-                  if (newContent.isNotEmpty) {
-                    final s = context.read<SettingsService>();
-                    Navigator.pop(ctx);
-                    final now = DateTime.now().millisecondsSinceEpoch;
-                    if (newTitle.isNotEmpty && newTitle != currentTitle) {
-                      await provider.updateThoughtTitle(idea['id'], newTitle, titleSource: 'user');
-                    }
-                    await provider.updateContent(idea['id'], newContent, editedAt: now);
-                    SoundService.instance.play(SoundEvent.save, settings: s);
-                    _showUndoSnackBar('Updated "${newTitle.isNotEmpty ? newTitle : currentTitle}"', () {});
-                  }
-                },
-                icon: const Icon(Icons.check, size: 18),
-                label: Text(
-                  'Save',
-                  style: appFont(fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.gold,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) setState(() => _isModalOpen = false);
+    });
   }
 }
 

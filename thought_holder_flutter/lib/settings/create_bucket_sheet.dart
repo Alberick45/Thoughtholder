@@ -6,6 +6,7 @@ import '../app_theme.dart';
 import '../settings_service.dart';
 import '../sound_service.dart';
 import '../thought_provider.dart';
+import '../widgets/keyboard_safe_sheet.dart';
 
 /// Opens the name and icon sheet/dialog to create a new custom bucket.
 Future<String?> showCreateBucketSheet(
@@ -21,50 +22,31 @@ Future<String?> showCreateBucketSheet(
   if (isDesktop) {
     return showDialog<String>(
       context: context,
-      builder: (dialogCtx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 480),
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-                color: colors.gold.withValues(alpha: 0.5), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: CreateBucketSheetContent(
-            provider: provider,
-            colors: colors,
-            isDialog: true,
-            onCreated: onCreated,
-          ),
+      builder: (dialogCtx) => KeyboardSafeSheet(
+        isDialog: true,
+        maxWidth: 480,
+        padding: EdgeInsets.zero,
+        backgroundColor: colors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+            color: colors.gold.withValues(alpha: 0.5), width: 1.5),
+        child: CreateBucketSheetContent(
+          provider: provider,
+          colors: colors,
+          isDialog: true,
+          onCreated: onCreated,
         ),
       ),
     );
   } else {
-    return showModalBottomSheet<String>(
+    return KeyboardSafeSheet.show<String>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(sheetCtx).size.height * 0.88,
-        ),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
-        ),
-        decoration: BoxDecoration(
-          color: colors.card,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: colors.line),
-        ),
+      builder: (sheetCtx) => KeyboardSafeSheet(
+        openingHeight: 474.0,
+        padding: EdgeInsets.zero,
+        backgroundColor: colors.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: colors.line),
         child: CreateBucketSheetContent(
           provider: provider,
           colors: colors,

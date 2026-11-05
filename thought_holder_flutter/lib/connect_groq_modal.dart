@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'settings_service.dart';
 import 'app_theme.dart';
+import 'widgets/keyboard_safe_sheet.dart';
 
 class ConnectGroqModal extends StatefulWidget {
   const ConnectGroqModal({super.key});
@@ -75,18 +76,11 @@ class _ConnectGroqModalState extends State<ConnectGroqModal> {
     final settings = context.watch<SettingsService>();
     final colors = AppColors.of(settings.theme);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border.all(color: colors.line, width: 2),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
+    return KeyboardSafeSheet(
+      backgroundColor: colors.card,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      border: Border.all(color: colors.line, width: 2),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
