@@ -247,18 +247,20 @@ class ThoughtProvider with ChangeNotifier {
 
   /// Ideas for a specific bucket, ranked best-first
   List<Map<String, dynamic>> getThoughtsForBucket(String bucketName) {
+    final target = bucketName.trim().toLowerCase();
     final list = _thoughts.where((t) {
       if (isDone(t) || isTrashed(t)) return false;
-      return (t['bucket'] as String?)?.trim() == bucketName.trim();
+      return (t['bucket'] as String?)?.trim().toLowerCase() == target;
     }).toList();
     list.sort(RankingEngine.compareRanked);
     return list;
   }
 
   int getIdeaCountForBucket(String bucketName) {
+    final target = bucketName.trim().toLowerCase();
     return _thoughts.where((t) {
       if (isDone(t) || isTrashed(t)) return false;
-      return (t['bucket'] as String?)?.trim() == bucketName.trim();
+      return (t['bucket'] as String?)?.trim().toLowerCase() == target;
     }).length;
   }
 
