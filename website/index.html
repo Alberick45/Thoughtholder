@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Thoughtholder – catch every idea before it disappears</title>
   <meta name="description"
-    content="Thoughtholder is a free Android app that captures your ideas by voice or text, straight from your home screen.">
+    content="Thoughtholder is a free app that captures your ideas by voice or text on Android and Windows Desktop, straight from your home screen or global hotkey.">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
@@ -493,6 +493,61 @@
       margin: 12px auto 26px
     }
 
+    .download-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      margin: 22px auto 0;
+    }
+
+    @media(min-width: 640px) {
+      .download-buttons {
+        flex-direction: row;
+        gap: 16px;
+      }
+    }
+
+    .install-grid {
+      display: grid;
+      gap: 18px;
+      max-width: 820px;
+      margin: 36px auto 0;
+      text-align: left;
+    }
+
+    @media(min-width: 760px) {
+      .install-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .install-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 22px;
+    }
+
+    .install-card h3 {
+      color: var(--gold);
+      font-size: 1.05rem;
+      margin-bottom: 8px;
+    }
+
+    .platform-tag {
+      display: inline-block;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--surface2);
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
     footer {
       padding: 30px 0 50px;
       color: var(--muted);
@@ -735,11 +790,25 @@
         margin: 0 auto 10px;
       }
 
-      #downloadBtn {
+      .download-buttons {
+        width: 100%;
+        gap: 10px;
+      }
+
+      .download-buttons .btn {
         width: 100%;
         text-align: center;
         padding: 12px 14px;
         font-size: .84rem;
+      }
+
+      .install-card {
+        padding: 16px 14px;
+        border-radius: 14px;
+      }
+
+      .install-card h3 {
+        font-size: .95rem;
       }
 
       ol.install {
@@ -810,13 +879,12 @@
     <div class="wrap hero">
       <div>
         <h1>Ideas don’t wait for you to open an app.</h1>
-        <p class="lead">Thoughtholder catches a thought the moment you have it. Tap record, say it or type it, and it’s
-          saved. Recording even continues when your screen turns off. Free for Android.</p>
+        <p class="lead">Thoughtholder catches a thought the moment you have it. Tap record on your phone, say it or type it, or summon capture instantly on your desktop. Free for Windows & Android.</p>
         <div class="cta-row">
-          <a class="btn" href="#download">Get the app</a>
+          <a class="btn" href="#download">Get Thoughtholder</a>
           <a class="btn ghost" href="#calculator">How many am I losing?</a>
         </div>
-        <p class="small" style="margin-top:14px">Free · Android · about 78 MB</p>
+        <p class="small" style="margin-top:14px">Free · Windows & Android · 100% Offline & Private</p>
       </div>
       <div class="stage">
         <div class="chip" aria-hidden="true">an app for sharing lecture notes</div>
@@ -931,19 +999,40 @@
           <img class="app-icon-badge" src="icon.png" alt="Thoughtholder app icon" width="76" height="76">
         </div>
         <h2>Stop losing good ideas</h2>
-        <p>Download Thoughtholder, install it, and capture your first thought.</p>
-        <a class="btn" id="downloadBtn"
-          href="https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/app-release.apk" target="_blank"
-          rel="noopener" download>Download for Android · v1.0 · ~78 MB</a>
-        <div style="text-align:left;max-width:520px;margin:34px auto 0">
-          <h3>How to install</h3>
-          <ol class="install">
-            <li>Open the downloaded file. If Android asks, allow installs from your browser.</li>
-            <li>Tap <strong>Install</strong>. If Play Protect shows a notice, choose <strong>More details</strong>, then
-              <strong>Install anyway</strong>.
-            </li>
-            <li>Open Thoughtholder, allow the microphone, and tap to record.</li>
-          </ol>
+        <p>Download Thoughtholder for your phone or desktop, install it, and capture your first thought.</p>
+
+        <div class="download-buttons">
+          <a class="btn" id="downloadWindowsBtn"
+            href="https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/thoughtholder-1.0.0-windows-x64.exe"
+            target="_blank" rel="noopener" download>
+            Download for Windows (x64) · v1.0
+          </a>
+          <a class="btn ghost" id="downloadAndroidBtn"
+            href="https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/app-release.apk" target="_blank"
+            rel="noopener" download>
+            Download for Android (APK) · ~78 MB
+          </a>
+        </div>
+
+        <div class="install-grid">
+          <div class="install-card">
+            <span class="platform-tag">Windows Desktop</span>
+            <h3>Windows Installation</h3>
+            <ol class="install">
+              <li>Download and open <code>thoughtholder-1.0.0-windows-x64.exe</code>.</li>
+              <li>Press <kbd style="background:var(--surface2);padding:2px 6px;border-radius:6px;border:1px solid var(--line);font-size:.85em">Ctrl + Shift + B</kbd> from anywhere in Windows to summon instant capture.</li>
+              <li>Thoughtholder stays ready in your System Tray and starts when you log in.</li>
+            </ol>
+          </div>
+          <div class="install-card">
+            <span class="platform-tag">Android Mobile</span>
+            <h3>Android Installation</h3>
+            <ol class="install">
+              <li>Open the downloaded <code>.apk</code>. If Android asks, allow installs from your browser.</li>
+              <li>Tap <strong>Install</strong> (choose <strong>More details</strong> → <strong>Install anyway</strong> if Play Protect prompts).</li>
+              <li>Open Thoughtholder, allow microphone, and tap to record.</li>
+            </ol>
+          </div>
         </div>
       </div>
     </section>
@@ -972,10 +1061,25 @@
       ["perDay", "lost", "days"].forEach(function (id) { $(id).addEventListener("input", calc) });
       calc();
 
-      // Track APK download clicks via GoatCounter
-      var dlBtn = $("downloadBtn");
-      if (dlBtn) {
-        dlBtn.addEventListener("click", function () {
+      // Track download clicks via GoatCounter
+      var dlWin = $("downloadWindowsBtn");
+      if (dlWin) {
+        dlWin.addEventListener("click", function () {
+          try {
+            if (window.goatcounter && typeof window.goatcounter.count === "function") {
+              window.goatcounter.count({
+                path: "download-windows",
+                title: "Download Windows",
+                event: true
+              });
+            }
+          } catch (e) { }
+        });
+      }
+
+      var dlAnd = $("downloadAndroidBtn") || $("downloadBtn");
+      if (dlAnd) {
+        dlAnd.addEventListener("click", function () {
           try {
             if (window.goatcounter && typeof window.goatcounter.count === "function") {
               window.goatcounter.count({
@@ -984,9 +1088,7 @@
                 event: true
               });
             }
-          } catch (e) {
-            // Silently guard so ad blockers never break the download
-          }
+          } catch (e) { }
         });
       }
     })();

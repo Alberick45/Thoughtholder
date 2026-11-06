@@ -107,15 +107,16 @@ Thoughtholder is available as an Android APK and a Windows native desktop applic
 
 ### 💻 Windows Desktop Installation
 
-#### Option 1: Pre-installed / Shortcut Launch
-If you have installed or built Thoughtholder locally on Windows:
-- **Desktop Shortcut**: Launch via the **Thoughtholder** icon on your Desktop.
-- **Start Menu**: Search for `ThoughtHolder` in your Windows Start Menu.
-- **Run Dialog**: Press <kbd>Win</kbd> + <kbd>R</kbd>, type `ThoughtHolder`, and press <kbd>Enter</kbd>.
-- **Summon Hotkey**: Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> from anywhere to trigger instant capture.
+1. **Download the Windows Executable**:
+   - [Download `thoughtholder-1.0.0-windows-x64.exe` (v1.0.0)](https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/thoughtholder-1.0.0-windows-x64.exe)
+2. **Launch & Shortcut Options**:
+   - **Desktop Shortcut**: Launch via the **Thoughtholder** icon on your Desktop.
+   - **Start Menu**: Search for `ThoughtHolder` in your Windows Start Menu.
+   - **Run Dialog**: Press <kbd>Win</kbd> + <kbd>R</kbd>, type `ThoughtHolder`, and press <kbd>Enter</kbd>.
+   - **Global Hotkey**: Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> from anywhere in Windows to trigger instant capture.
 
-#### Option 2: Pre-compiled Release Directory
-The Windows release executable bundle is located at:
+#### Local Installation Path
+If already installed via the setup script, the program bundle lives at:
 ```text
 C:\Users\<User>\AppData\Local\Programs\ThoughtHolder\thought_holder_flutter.exe
 ```
