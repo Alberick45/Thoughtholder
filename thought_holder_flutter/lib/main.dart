@@ -268,6 +268,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final colors = AppColors.of(settings.theme);
     final currentIndex = nav.mainTabIndex;
     final bool isBucketOpen = (currentIndex == 1 && nav.streamSubTab == 'sorted' && nav.selectedBucket != null);
+    final bool isBoardFullscreen = (currentIndex == 1 && nav.isBoardExpanded && !nav.isTrashOpen && nav.selectedBucket == null);
 
     final liveIndex = _liveMainPage.round().clamp(0, 1);
 
@@ -296,41 +297,47 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             nav.closeTrash();
             return;
           }
+          if (nav.isBoardExpanded) {
+            nav.setBoardExpanded(false);
+            return;
+          }
           if (!kIsWeb && Platform.isAndroid) {
             SystemNavigator.pop();
           }
         },
         child: Scaffold(
           backgroundColor: colors.bg,
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            title: Text(
-              'BRAIN DUMP',
-              style: TextStyle(
-                color: colors.gold,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 4,
-                fontSize: 17,
-              ),
-            ),
-            centerTitle: true,
-            backgroundColor: colors.bg,
-            elevation: 0,
-            actions: [
-              IconButton(
-                icon: Icon(Icons.settings_outlined, color: colors.mute),
-                tooltip: 'Settings: connect Groq',
-                onPressed: () {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => const SettingsModal(),
-                  );
-                },
-              ),
-            ],
-          ),
+          appBar: isBoardFullscreen
+              ? null
+              : AppBar(
+                  automaticallyImplyLeading: false,
+                  title: Text(
+                    'BRAIN DUMP',
+                    style: TextStyle(
+                      color: colors.gold,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 4,
+                      fontSize: 17,
+                    ),
+                  ),
+                  centerTitle: true,
+                  backgroundColor: colors.bg,
+                  elevation: 0,
+                  actions: [
+                    IconButton(
+                      icon: Icon(Icons.settings_outlined, color: colors.mute),
+                      tooltip: 'Settings: connect Groq',
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const SettingsModal(),
+                        );
+                      },
+                    ),
+                  ],
+                ),
           body: SwipeTabs(
             currentIndex: currentIndex,
             tabLabels: const ['Speak', 'Board'],
@@ -364,8 +371,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   child: BottomNavigationBar(
               currentIndex: liveIndex,
               onTap: (index) {
-                setState(() => _liveMainPage = index.toDouble());
-                context.read<NavigationNotifier>().setMainTab(index);
+                if (index == 1 && nav.mainTabIndex == 1) {
+                  nav.toggleBoardExpanded();
+                } else {
+                  setState(() => _liveMainPage = index.toDouble());
+                  context.read<NavigationNotifier>().setMainTab(index);
+                }
               },
               backgroundColor: colors.card,
               selectedItemColor: colors.gold,

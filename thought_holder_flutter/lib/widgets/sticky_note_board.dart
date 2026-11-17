@@ -41,7 +41,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     return kStickyNoteColors[index % kStickyNoteColors.length];
   }
 
-  void _onSecondaryTapDown(BuildContext context, TapDownDetails details) {
+  void _onBoardSecondaryTapDown(BuildContext context, TapDownDetails details) {
     _showBoardContextMenu(context, details.globalPosition);
   }
 
@@ -124,12 +124,167 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
       ],
     );
 
-    if (selected == 'new' && mounted) {
+    if (!mounted || selected == null) return;
+
+    if (selected == 'new') {
       _showCreateStickyNoteDialog(context);
-    } else if (selected == 'pin_sorted' && mounted) {
+    } else if (selected == 'pin_sorted') {
       _showPinListPicker(context, isSorted: true);
-    } else if (selected == 'pin_unsorted' && mounted) {
+    } else if (selected == 'pin_unsorted') {
       _showPinListPicker(context, isSorted: false);
+    }
+  }
+
+  /// Right-click context menu specifically for a Sticky Note on the Board
+  void _showNoteContextMenu(
+      BuildContext context, Offset globalPos, Map<String, dynamic> thought) async {
+    final provider = context.read<ThoughtProvider>();
+    final settings = context.read<SettingsService>();
+    final id = thought['id'] as String;
+    final title = (thought['title'] as String?)?.isNotEmpty == true
+        ? thought['title'] as String
+        : 'Note';
+
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        globalPos & const Size(40, 40),
+        Offset.zero & overlay.size,
+      ),
+      color: const Color(0xFF1E222B),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF333B48)),
+      ),
+      items: [
+        PopupMenuItem<String>(
+          value: 'done',
+          child: Row(
+            children: [
+              const Icon(Icons.check, color: Color(0xFFFFD54F), size: 18),
+              const SizedBox(width: 10),
+              Text('Mark done', style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'split',
+          child: Row(
+            children: [
+              const Icon(Icons.splitscreen, color: Color(0xFFFFD54F), size: 18),
+              const SizedBox(width: 10),
+              Text('Split into smaller tasks',
+                  style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'edit',
+          child: Row(
+            children: [
+              const Icon(Icons.edit_outlined, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Text('Edit', style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'copy',
+          child: Row(
+            children: [
+              const Icon(Icons.copy_outlined, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Text('Copy', style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'unpin',
+          child: Row(
+            children: [
+              const Icon(Icons.close, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Text('Remove from board (unpin)',
+                  style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'trash',
+          child: Row(
+            children: [
+              const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+              const SizedBox(width: 10),
+              Text('Delete to Trash',
+                  style: appFont(color: Colors.redAccent, fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (!mounted || selected == null) return;
+
+    switch (selected) {
+      case 'done':
+        await provider.markDone(id, true);
+        SoundService.instance.play(SoundEvent.save, settings: settings);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Marked "$title" as done'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+            ),
+          );
+        }
+        break;
+      case 'split':
+        _showSplitDialog(context, thought);
+        break;
+      case 'edit':
+        _showEditDialog(context, thought);
+        break;
+      case 'copy':
+        await provider.copyThought(id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Duplicated "$title"'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+            ),
+          );
+        }
+        break;
+      case 'unpin':
+        await provider.unpinFromBoard(id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Removed "$title" from board (kept in list)'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+            ),
+          );
+        }
+        break;
+      case 'trash':
+        await provider.moveToTrash(id);
+        SoundService.instance.play(SoundEvent.trash, settings: settings);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Moved "$title" to trash'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+            ),
+          );
+        }
+        break;
     }
   }
 
@@ -400,7 +555,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                 style: appFont(color: Colors.white, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'Task 1\nTask 2\nTask 3',
-                  hintStyle: appFont(color: Colors.grey.withOpacity(0.5)),
+                  hintStyle: appFont(color: Colors.grey.withValues(alpha: 0.5)),
                   enabledBorder: OutlineInputBorder(
                     borderSide: const BorderSide(color: Color(0xFF333B48)),
                     borderRadius: BorderRadius.circular(8),
@@ -561,35 +716,155 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     final pinned = provider.pinnedThoughts;
     final pinnedCount = pinned.length;
 
+    // QUARTER-SCREEN PREVIEW MODE (When embedded at top of Stream)
+    if (!widget.isExpandedView) {
+      return Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF13151D),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colors.line),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top Preview Header
+            Row(
+              children: [
+                const Icon(Icons.push_pin, color: Color(0xFFFFD54F), size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  'PINNED BOARD',
+                  style: appFont(
+                    color: const Color(0xFFFFD54F),
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.8,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E222B),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFFFFD54F).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Text(
+                    '$pinnedCount / 8 pinned',
+                    style: appFont(
+                      color: const Color(0xFFFFD54F),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFFD54F),
+                    side: const BorderSide(color: Color(0xFFFFD54F)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: const Icon(Icons.fullscreen, size: 16),
+                  label: Text('Expand Board',
+                      style: appFont(fontWeight: FontWeight.bold, fontSize: 12)),
+                  onPressed: widget.onToggleExpand,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // Horizontal scrolling row of large readable cards in quarter-screen mode
+            Expanded(
+              child: pinned.isEmpty
+                  ? GestureDetector(
+                      onTap: widget.onToggleExpand,
+                      onSecondaryTapDown: (details) =>
+                          _onBoardSecondaryTapDown(context, details),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFF262C38),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              '+ No pinned thoughts yet. Click "Pin to board" in any menu or right-click to add.',
+                              textAlign: TextAlign.center,
+                              style: appFont(
+                                  color: colors.mute, fontSize: 12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: pinned.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 12),
+                      itemBuilder: (context, i) {
+                        final thought = pinned[i];
+                        final color = _getNoteColor(i);
+                        return SizedBox(
+                          width: 180,
+                          child: GestureDetector(
+                            onTap: widget.onToggleExpand,
+                            onSecondaryTapDown: (details) => _showNoteContextMenu(
+                                context, details.globalPosition, thought),
+                            child: _buildStickyNoteCard(
+                              thought: thought,
+                              color: color,
+                              isSelected: false,
+                              cellWidth: 180,
+                              cellHeight: 110,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // FULLSCREEN 4×2 GRID VIEW MATCHING IMAGE 2
     return GestureDetector(
-      onSecondaryTapDown: (details) => _onSecondaryTapDown(context, details),
+      onSecondaryTapDown: (details) => _onBoardSecondaryTapDown(context, details),
       onTap: () {
         if (_selectedThoughtId != null) {
           setState(() => _selectedThoughtId = null);
         }
       },
       child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF13151D),
-          borderRadius: BorderRadius.circular(widget.isExpandedView ? 0 : 16),
-          border: widget.isExpandedView ? null : Border.all(color: colors.line),
-        ),
+        color: const Color(0xFF13151D),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Bar: Sort button on left, title center, pinned badge + expand toggle right
+            // Top Bar: Prominent Sort button on left, Title center, Pinned count + Toggle right (matching Image 2)
             Row(
               children: [
-                // "Sort" button in top-left corner (Requirement 7)
+                // "Sort" button (Requirement 7 & Image 2)
                 OutlinedButton.icon(
-                  icon: const Icon(Icons.sort, size: 16),
+                  icon: const Icon(Icons.menu, size: 16),
                   label: const Text('Sort'),
                   style: OutlinedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E222B),
                     foregroundColor: const Color(0xFFFFD54F),
-                    side: const BorderSide(color: Color(0xFF333B48)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                    side: const BorderSide(color: Color(0xFF333B48), width: 1.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     textStyle: appFont(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
@@ -610,7 +885,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     color: const Color(0xFFFFD54F),
                     fontWeight: FontWeight.w900,
                     letterSpacing: 2.2,
-                    fontSize: 14,
+                    fontSize: 15,
                   ),
                 ),
 
@@ -619,12 +894,12 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                 // Pinned badge (e.g. 7 / 8 pinned)
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E222B),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: const Color(0xFFFFD54F).withOpacity(0.5),
+                      color: const Color(0xFFFFD54F).withValues(alpha: 0.6),
                     ),
                   ),
                   child: Text(
@@ -640,16 +915,12 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                 if (widget.onToggleExpand != null) ...[
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: Icon(
-                      widget.isExpandedView
-                          ? Icons.fullscreen_exit
-                          : Icons.fullscreen,
-                      color: colors.mute,
-                      size: 22,
+                    icon: const Icon(
+                      Icons.fullscreen_exit,
+                      color: Color(0xFFFFD54F),
+                      size: 24,
                     ),
-                    tooltip: widget.isExpandedView
-                        ? 'Collapse Board'
-                        : 'Expand Board',
+                    tooltip: 'Return to Stream',
                     onPressed: widget.onToggleExpand,
                   ),
                 ],
@@ -662,8 +933,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  const crossAxisCount = 4;
-                  const rowCount = 2;
+                  final isNarrow = constraints.maxWidth < 650;
+                  final crossAxisCount = isNarrow ? 2 : 4;
+                  final rowCount = isNarrow ? 4 : 2;
                   const spacing = 12.0;
 
                   final cellWidth = (constraints.maxWidth -
@@ -738,7 +1010,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   });
                                 },
                                 onSecondaryTapDown: (details) =>
-                                    _onSecondaryTapDown(context, details),
+                                    _showNoteContextMenu(
+                                        context, details.globalPosition, thought),
                                 child: _buildStickyNoteCard(
                                   thought: thought,
                                   color: color,
@@ -756,7 +1029,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         return GestureDetector(
                           onTap: () => _showCreateStickyNoteDialog(context),
                           onSecondaryTapDown: (details) =>
-                              _onSecondaryTapDown(context, details),
+                              _onBoardSecondaryTapDown(context, details),
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.transparent,
@@ -774,7 +1047,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     const Icon(Icons.add,
-                                        size: 20, color: Color(0xFF4B5563)),
+                                        size: 22, color: Color(0xFF4B5563)),
                                     const SizedBox(height: 6),
                                     Text(
                                       '$slotsLeft slot${slotsLeft == 1 ? '' : 's'} left',
@@ -845,7 +1118,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.35),
+                color: Colors.black.withValues(alpha: 0.35),
                 blurRadius: isSelected ? 14 : 8,
                 offset: const Offset(2, 4),
               ),
@@ -868,7 +1141,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               ),
               const SizedBox(height: 4),
 
-              // Content Preview (2 lines)
+              // Content Preview (2-3 lines)
               Expanded(
                 child: Text(
                   content,
@@ -894,10 +1167,10 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.08),
+                        color: Colors.black.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: Colors.black.withOpacity(0.15),
+                          color: Colors.black.withValues(alpha: 0.15),
                         ),
                       ),
                       child: Text(
@@ -927,8 +1200,15 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           ),
         ),
 
-        // 3D Red Pushpin at top center
-        PositionStartAlignedPushpin(),
+        // Direct Positioned 3D Red Pushpin at top center (NO Stateless wrapper!)
+        Positioned(
+          top: -6,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: _buildPushpinWidget(),
+          ),
+        ),
 
         // Action Bar Overlay when Note is Selected (Requirement 2)
         if (isSelected)
@@ -939,6 +1219,33 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             child: _buildActionBar(context, thought),
           ),
       ],
+    );
+  }
+
+  /// 3D Red Pushpin matching Image 2
+  Widget _buildPushpinWidget() {
+    return Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          center: Alignment(-0.3, -0.4),
+          radius: 0.8,
+          colors: [
+            Color(0xFFFF8A80), // Specular light highlight
+            Color(0xFFE53935), // Primary red
+            Color(0xFFB71C1C), // Deep red edge shadow
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 4,
+            offset: const Offset(1, 2),
+          ),
+        ],
+      ),
     );
   }
 
@@ -954,11 +1261,11 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     return Container(
       height: 38,
       decoration: BoxDecoration(
-        color: const Color(0xFF1E222B).withOpacity(0.92),
+        color: const Color(0xFF1E222B).withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: Colors.black.withValues(alpha: 0.4),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -1088,45 +1395,6 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
       onPressed: onTap,
-    );
-  }
-}
-
-/// 3D Red Pushpin matching Image 2
-class PositionStartAlignedPushpin extends StatelessWidget {
-  const PositionStartAlignedPushpin({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: -6,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const RadialGradient(
-              center: Alignment(-0.3, -0.4),
-              radius: 0.8,
-              colors: [
-                Color(0xFFFF8A80), // Specular light highlight
-                Color(0xFFE53935), // Primary red
-                Color(0xFFB71C1C), // Deep red edge shadow
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.45),
-                blurRadius: 4,
-                offset: const Offset(1, 2),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

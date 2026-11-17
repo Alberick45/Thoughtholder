@@ -29,7 +29,6 @@ class StreamScreen extends StatefulWidget {
 class _StreamScreenState extends State<StreamScreen> {
   bool _isModalOpen = false;
   bool _splitPromptChecked = false;
-  bool _isBoardExpanded = false;
   int _visibleBucketIdeasCount = 20;
   int _visibleDoneCount = 9; // UPDATE 3: 9 at a time (3x3)
   int _visibleTrashCount = 12;
@@ -466,12 +465,12 @@ class _StreamScreenState extends State<StreamScreen> {
     }
 
     // Expanded Fullscreen Sticky Note Board (PART 1: STICKY NOTE BOARD)
-    if (_isBoardExpanded && !nav.isTrashOpen) {
+    if (nav.isBoardExpanded && !nav.isTrashOpen) {
       return SafeArea(
         child: StickyNoteBoard(
           isExpandedView: true,
-          onOpenSorted: () => setState(() => _isBoardExpanded = false),
-          onToggleExpand: () => setState(() => _isBoardExpanded = false),
+          onOpenSorted: () => nav.setBoardExpanded(false),
+          onToggleExpand: () => nav.setBoardExpanded(false),
         ),
       );
     }
@@ -506,50 +505,61 @@ class _StreamScreenState extends State<StreamScreen> {
                 // Sticky Note Board preview (about quarter of the screen) with click to expand
                 if (!nav.isTrashOpen) ...[
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
+                        // Back to Board button (Requirement 7)
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colors.card,
                             foregroundColor: colors.gold,
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            elevation: 0,
+                            side: BorderSide(color: colors.gold, width: 1.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          icon: const Icon(Icons.push_pin, size: 14),
+                          icon: const Icon(Icons.push_pin, size: 15),
                           label: Text(
-                            'Sticky Board (${provider.pinnedCount}/8)',
+                            '← Board (${provider.pinnedCount}/8)',
                             style: appFont(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
-                          onPressed: () => setState(() => _isBoardExpanded = true),
+                          onPressed: () => nav.setBoardExpanded(true),
                         ),
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
+                        const Spacer(),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
                             foregroundColor: colors.gold,
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            side: BorderSide(color: colors.line),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          icon: const Icon(Icons.fullscreen, size: 16),
+                          icon: const Icon(Icons.open_in_full, size: 14),
                           label: Text(
-                            'Expand Board',
+                            'Open Full Board',
                             style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
                           ),
-                          onPressed: () => setState(() => _isBoardExpanded = true),
+                          onPressed: () => nav.setBoardExpanded(true),
                         ),
                       ],
                     ),
                   ),
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    height: 165,
+                    height: 175,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: StickyNoteBoard(
                         isExpandedView: false,
                         onOpenSorted: () {},
-                        onToggleExpand: () => setState(() => _isBoardExpanded = true),
+                        onToggleExpand: () => nav.setBoardExpanded(true),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                 ],
 
                 // First-time sound choice card (Section 2)
@@ -3656,6 +3666,125 @@ class _StreamScreenState extends State<StreamScreen> {
     );
   }
 
+  void _showSplitIdeaDialog(
+    BuildContext context,
+    ThoughtProvider provider,
+    Map<String, dynamic> idea,
+    AppColors colors,
+  ) {
+    final title = (idea['title'] as String?)?.isNotEmpty == true
+        ? idea['title'] as String
+        : (idea['content'] as String? ?? '');
+    final bucket = (idea['bucket'] as String?)?.trim() ?? 'General';
+    final ctrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: colors.line),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.splitscreen, color: colors.gold, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              'Split into Smaller Tasks',
+              style: appFont(
+                color: colors.text,
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Original: "$title"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: appFont(color: colors.mute, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Enter each new task on a separate line:',
+                style: appFont(
+                  color: colors.text,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: ctrl,
+                maxLines: 5,
+                autofocus: true,
+                style: appFont(color: colors.text, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Task 1\nTask 2\nTask 3',
+                  hintStyle: appFont(color: colors.mute.withValues(alpha: 0.5)),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: colors.line),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: colors.gold),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: appFont(color: colors.mute)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.gold,
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () async {
+              final lines = ctrl.text
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .where((l) => l.isNotEmpty)
+                  .toList();
+              if (lines.isEmpty) return;
+
+              Navigator.pop(ctx);
+              final result = await provider.splitThought(idea['id'], lines);
+
+              if (context.mounted) {
+                if (result.pinnedCount < result.createdCount) {
+                  _showUndoSnackBar(
+                    'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8).',
+                    () {},
+                  );
+                } else {
+                  _showUndoSnackBar(
+                    'Created and pinned ${result.createdCount} tasks in "$bucket".',
+                    () {},
+                  );
+                }
+              }
+            },
+            child: const Text('Split Task'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- Idea Context Menu (Step 2: Shared ⋯ Menu with large 52px buttons) ---
   void _showIdeaContextMenu(
     BuildContext context,
@@ -3663,6 +3792,7 @@ class _StreamScreenState extends State<StreamScreen> {
     Map<String, dynamic> idea,
     AppColors colors,
   ) {
+    final nav = context.read<NavigationNotifier>();
     final settings = context.read<SettingsService>();
     final ideaName = TitleGenerator.getIdeaName(idea);
     final timestamp = IdeaFormatters.formatReadableTimestamp(idea['created_at'] as int?);
@@ -3756,25 +3886,72 @@ class _StreamScreenState extends State<StreamScreen> {
             ),
             const Divider(height: 12),
 
-            // 0. Pin to board / Remove from board (Requirement 5 & 6)
+            // 1. Mark done / Mark active
+            buildMenuItem(
+              icon: idea['done'] == 1 ? Icons.undo : Icons.check_circle_outline,
+              iconColor: colors.gold,
+              textColor: colors.gold,
+              label: idea['done'] == 1 ? 'Mark as active' : 'Mark done',
+              onTap: () async {
+                Navigator.pop(ctx);
+                final markDone = idea['done'] != 1;
+                await provider.markDone(idea['id'], markDone);
+                SoundService.instance.play(SoundEvent.save, settings: settings);
+                _showUndoSnackBar(
+                  markDone ? 'Marked "$ideaName" as done' : 'Marked "$ideaName" as active',
+                  () {
+                    provider.markDone(idea['id'], !markDone);
+                  },
+                );
+              },
+            ),
+
+            // 2. Split into smaller tasks (Requirement 4)
+            buildMenuItem(
+              icon: Icons.splitscreen,
+              iconColor: colors.gold,
+              textColor: colors.gold,
+              label: 'Split into smaller tasks',
+              onTap: () {
+                Navigator.pop(ctx);
+                _showSplitIdeaDialog(context, provider, idea, colors);
+              },
+            ),
+
+            // 3. Pin to board / Remove from board (Requirement 5 & 6)
             Builder(
               builder: (context) {
                 final isPinned = provider.isPinned(idea);
                 final isBoardFull = provider.isBoardFull;
 
                 if (isPinned) {
-                  return buildMenuItem(
-                    icon: Icons.push_pin,
-                    iconColor: colors.gold,
-                    textColor: colors.gold,
-                    label: 'Remove from board',
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await provider.unpinFromBoard(idea['id']);
-                      _showUndoSnackBar('Removed "$ideaName" from board', () {
-                        provider.pinToBoard(idea['id']);
-                      });
-                    },
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      buildMenuItem(
+                        icon: Icons.open_in_full,
+                        iconColor: colors.gold,
+                        textColor: colors.gold,
+                        label: 'View on board',
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          nav.setBoardExpanded(true);
+                        },
+                      ),
+                      buildMenuItem(
+                        icon: Icons.push_pin,
+                        iconColor: colors.gold,
+                        textColor: colors.gold,
+                        label: 'Remove from board',
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          await provider.unpinFromBoard(idea['id']);
+                          _showUndoSnackBar('Removed "$ideaName" from board', () {
+                            provider.pinToBoard(idea['id']);
+                          });
+                        },
+                      ),
+                    ],
                   );
                 } else if (isBoardFull) {
                   return buildMenuItem(

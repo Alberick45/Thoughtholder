@@ -5,11 +5,25 @@ class NavigationNotifier extends ChangeNotifier {
   String _streamSubTab = 'sorted'; // When switching to Stream, Sorted is active
   bool _isTrashOpen = false;
   String? _selectedBucket;
+  bool _isBoardExpanded = false;
 
   int get mainTabIndex => _mainTabIndex;
   String get streamSubTab => _streamSubTab;
   bool get isTrashOpen => _isTrashOpen;
   String? get selectedBucket => _selectedBucket;
+  bool get isBoardExpanded => _isBoardExpanded;
+
+  void setBoardExpanded(bool expanded) {
+    if (_isBoardExpanded != expanded) {
+      _isBoardExpanded = expanded;
+      notifyListeners();
+    }
+  }
+
+  void toggleBoardExpanded() {
+    _isBoardExpanded = !_isBoardExpanded;
+    notifyListeners();
+  }
 
   void setMainTab(int index) {
     if (_mainTabIndex != index) {
