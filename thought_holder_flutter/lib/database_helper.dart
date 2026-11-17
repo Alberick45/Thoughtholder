@@ -128,7 +128,10 @@ CREATE TABLE thoughts (
   title TEXT,
   title_source TEXT,
   skipped_at INTEGER,
-  skip_count INTEGER DEFAULT 0
+  skip_count INTEGER DEFAULT 0,
+  is_pinned INTEGER DEFAULT 0,
+  board_position INTEGER DEFAULT -1,
+  pinned_at INTEGER
 )
 ''');
 
@@ -162,6 +165,39 @@ CREATE TABLE bucket_aliases (
   alias_id TEXT PRIMARY KEY,
   canonical_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
+)
+''');
+
+    // Voice recordings table (Part 2: Never Lose a Voice Note)
+    await db.execute('''
+CREATE TABLE voice_recordings (
+  id TEXT PRIMARY KEY,
+  file_path TEXT NOT NULL,
+  duration_seconds INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  total_segments INTEGER DEFAULT 1,
+  completed_segments INTEGER DEFAULT 0,
+  error_message TEXT,
+  transcript TEXT,
+  associated_thought_id TEXT,
+  audio_kept_until INTEGER
+)
+''');
+
+    // Voice segments table
+    await db.execute('''
+CREATE TABLE voice_segments (
+  id TEXT PRIMARY KEY,
+  recording_id TEXT NOT NULL,
+  segment_index INTEGER NOT NULL,
+  file_path TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  transcript TEXT,
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0
 )
 ''');
 
@@ -226,6 +262,47 @@ CREATE TABLE bucket_aliases (
     if (!existingTCols.contains('skip_count')) {
       await db.execute('ALTER TABLE thoughts ADD COLUMN skip_count INTEGER DEFAULT 0');
     }
+    if (!existingTCols.contains('is_pinned')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN is_pinned INTEGER DEFAULT 0');
+    }
+    if (!existingTCols.contains('board_position')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN board_position INTEGER DEFAULT -1');
+    }
+    if (!existingTCols.contains('pinned_at')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN pinned_at INTEGER');
+    }
+
+    // Ensure voice_recordings and voice_segments tables exist
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS voice_recordings (
+  id TEXT PRIMARY KEY,
+  file_path TEXT NOT NULL,
+  duration_seconds INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  total_segments INTEGER DEFAULT 1,
+  completed_segments INTEGER DEFAULT 0,
+  error_message TEXT,
+  transcript TEXT,
+  associated_thought_id TEXT,
+  audio_kept_until INTEGER
+)
+''');
+
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS voice_segments (
+  id TEXT PRIMARY KEY,
+  recording_id TEXT NOT NULL,
+  segment_index INTEGER NOT NULL,
+  file_path TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  transcript TEXT,
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0
+)
+''');
 
     // 2. Ensure buckets table and columns exist
     await db.execute('''
@@ -796,6 +873,124 @@ WHERE name = ?
     });
 
     return true;
+  }
+
+  // --- Pin to Board Operations (PART 1) ---
+
+  Future<void> pinThought(String id, {int? position, String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Determine position if not specified
+    int pos = position ?? -1;
+    if (pos < 0) {
+      final existingPinned = await db.query(
+        'thoughts',
+        columns: ['board_position'],
+        where: 'is_pinned = 1 AND trashed = 0 AND done = 0',
+      );
+      final taken = existingPinned
+          .map((r) => r['board_position'] as int? ?? -1)
+          .where((p) => p >= 0 && p < 8)
+          .toSet();
+      for (int i = 0; i < 8; i++) {
+        if (!taken.contains(i)) {
+          pos = i;
+          break;
+        }
+      }
+      if (pos < 0) pos = 0;
+    }
+
+    await db.rawUpdate('''
+UPDATE thoughts SET
+  is_pinned = 1,
+  board_position = ?,
+  pinned_at = ?,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [pos, now, Hlc.now(node).toString(), node, id]);
+  }
+
+  Future<void> unpinThought(String id, {String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+
+    await db.rawUpdate('''
+UPDATE thoughts SET
+  is_pinned = 0,
+  board_position = -1,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [Hlc.now(node).toString(), node, id]);
+  }
+
+  Future<void> updateBoardPositions(Map<String, int> positions, {String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    final hlcStr = Hlc.now(node).toString();
+
+    await db.transaction((txn) async {
+      for (final entry in positions.entries) {
+        await txn.rawUpdate('''
+UPDATE thoughts SET
+  board_position = ?,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [entry.value, hlcStr, node, entry.key]);
+      }
+    });
+  }
+
+  // --- Voice Recordings DB Operations (PART 2) ---
+
+  Future<void> insertVoiceRecording(Map<String, dynamic> recording) async {
+    final db = await instance.database;
+    await db.insert('voice_recordings', recording, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> updateVoiceRecording(String id, Map<String, dynamic> updates) async {
+    final db = await instance.database;
+    await db.update('voice_recordings', updates, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchVoiceRecordings() async {
+    final db = await instance.database;
+    return await db.query('voice_recordings', orderBy: 'created_at DESC');
+  }
+
+  Future<Map<String, dynamic>?> fetchVoiceRecording(String id) async {
+    final db = await instance.database;
+    final res = await db.query('voice_recordings', where: 'id = ?', whereArgs: [id]);
+    return res.firstOrNull;
+  }
+
+  Future<void> deleteVoiceRecording(String id) async {
+    final db = await instance.database;
+    await db.delete('voice_segments', where: 'recording_id = ?', whereArgs: [id]);
+    await db.delete('voice_recordings', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> insertVoiceSegment(Map<String, dynamic> segment) async {
+    final db = await instance.database;
+    await db.insert('voice_segments', segment, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> updateVoiceSegment(String id, Map<String, dynamic> updates) async {
+    final db = await instance.database;
+    await db.update('voice_segments', updates, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchVoiceSegments(String recordingId) async {
+    final db = await instance.database;
+    return await db.query('voice_segments', where: 'recording_id = ?', whereArgs: [recordingId], orderBy: 'segment_index ASC');
   }
 
   Future<void> pruneOldSnapshots() async {

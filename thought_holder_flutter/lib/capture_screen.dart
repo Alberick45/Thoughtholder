@@ -8,10 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'app_theme.dart';
 import 'background_recording_service.dart';
+import 'database_helper.dart';
 import 'navigation_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
 import 'thought_provider.dart';
+import 'voice_recordings_screen.dart';
 import 'widgets/swipe_tabs.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -351,102 +353,185 @@ class _CaptureScreenState extends State<CaptureScreen>
             const SizedBox(height: 12),
           ],
 
-          // Mode Toggle: Voice / Text
-          Container(
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: colors.line),
-            ),
-            padding: const EdgeInsets.all(4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+          // Top Bar: Mode Toggle (Voice / Text) & Voice Recordings List (Requirement 4)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
               children: [
-                GestureDetector(
-                  onTap: () => setState(() => _captureMode = 'voice'),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _captureMode == 'voice'
-                          ? colors.goldBg
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: _captureMode == 'voice'
-                            ? colors.gold
-                            : Colors.transparent,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.mic_outlined,
-                          size: 18,
-                          color: _captureMode == 'voice'
-                              ? colors.gold
-                              : colors.mute,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Voice',
-                          style: appFont(
+                // Mode Toggle: Voice / Text
+                Container(
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: colors.line),
+                  ),
+                  padding: const EdgeInsets.all(4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: () => setState(() => _captureMode = 'voice'),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 10),
+                          decoration: BoxDecoration(
                             color: _captureMode == 'voice'
-                                ? colors.gold
-                                : colors.mute,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                                ? colors.goldBg
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: _captureMode == 'voice'
+                                  ? colors.gold
+                                  : Colors.transparent,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.mic_outlined,
+                                size: 18,
+                                color: _captureMode == 'voice'
+                                    ? colors.gold
+                                    : colors.mute,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Voice',
+                                style: appFont(
+                                  color: _captureMode == 'voice'
+                                      ? colors.gold
+                                      : colors.mute,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _captureMode = 'text'),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _captureMode == 'text'
+                                ? colors.goldBg
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: _captureMode == 'text'
+                                  ? colors.gold
+                                  : Colors.transparent,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.edit_note,
+                                size: 18,
+                                color: _captureMode == 'text'
+                                    ? colors.gold
+                                    : colors.mute,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Text',
+                                style: appFont(
+                                  color: _captureMode == 'text'
+                                      ? colors.gold
+                                      : colors.mute,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => setState(() => _captureMode = 'text'),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _captureMode == 'text'
-                          ? colors.goldBg
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: _captureMode == 'text'
-                            ? colors.gold
-                            : Colors.transparent,
-                        width: 1.5,
+
+                // Voice Recordings Button with badge for number waiting (Part 2: Requirement 4)
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: DatabaseHelper.instance.fetchVoiceRecordings(),
+                  builder: (context, snapshot) {
+                    final recs = snapshot.data ?? [];
+                    final waitingCount = recs.where((r) =>
+                        r['status'] == 'saved' ||
+                        r['status'] == 'failed' ||
+                        r['status'] == 'transcribing').length;
+
+                    return OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colors.text,
+                        side: BorderSide(
+                          color: waitingCount > 0 ? colors.gold : colors.line,
+                          width: waitingCount > 0 ? 1.5 : 1,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.edit_note,
-                          size: 18,
-                          color: _captureMode == 'text'
-                              ? colors.gold
-                              : colors.mute,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Text',
-                          style: appFont(
-                            color: _captureMode == 'text'
-                                ? colors.gold
-                                : colors.mute,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const VoiceRecordingsScreen()),
+                        ).then((_) => setState(() {}));
+                      },
+                      icon: Icon(
+                        Icons.library_music_outlined,
+                        size: 17,
+                        color: waitingCount > 0 ? colors.gold : colors.mute,
+                      ),
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Voice recordings',
+                            style: appFont(
+                              color: colors.text,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                          if (waitingCount > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: colors.gold,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$waitingCount',
+                                style: appFont(
+                                  color: Colors.black,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

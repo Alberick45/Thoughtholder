@@ -91,6 +91,18 @@ class RankingEngine {
   }
 }
 
+class SplitResult {
+  final int createdCount;
+  final int pinnedCount;
+  final String? bucketName;
+
+  const SplitResult({
+    required this.createdCount,
+    required this.pinnedCount,
+    this.bucketName,
+  });
+}
+
 class ThoughtProvider with ChangeNotifier {
   List<Map<String, dynamic>> _thoughts = [];
   List<Map<String, dynamic>> _buckets = [];
@@ -552,6 +564,143 @@ class ThoughtProvider with ChangeNotifier {
       await loadAll();
     }
     return success;
+  }
+
+  // --- Pin & Board Operations (PART 1: STICKY NOTE BOARD) ---
+
+  bool isPinned(Map<String, dynamic> t) =>
+      (t['is_pinned'] == 1 || t['is_pinned'] == true) &&
+      !isDone(t) &&
+      !isTrashed(t);
+
+  List<Map<String, dynamic>> get pinnedThoughts {
+    final list = _thoughts.where(isPinned).toList();
+    list.sort((a, b) {
+      final posA = (a['board_position'] as num?)?.toInt() ?? 999;
+      final posB = (b['board_position'] as num?)?.toInt() ?? 999;
+      if (posA != posB) return posA.compareTo(posB);
+      final pinAtA = (a['pinned_at'] as num?)?.toInt() ?? 0;
+      final pinAtB = (b['pinned_at'] as num?)?.toInt() ?? 0;
+      return pinAtA.compareTo(pinAtB);
+    });
+    if (list.length > 8) {
+      return list.sublist(0, 8);
+    }
+    return list;
+  }
+
+  int get pinnedCount => pinnedThoughts.length;
+  bool get isBoardFull => pinnedCount >= 8;
+
+  Future<bool> pinToBoard(String id, {int? position}) async {
+    final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
+    if (existing.isEmpty) return false;
+    if (isPinned(existing)) return true;
+    if (isBoardFull) return false;
+
+    final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
+    int targetSlot = position ?? -1;
+    if (targetSlot < 0 || targetSlot >= 8) {
+      final occupied = pinnedThoughts
+          .map((t) => (t['board_position'] as num?)?.toInt() ?? -1)
+          .where((p) => p >= 0 && p < 8)
+          .toSet();
+      for (int i = 0; i < 8; i++) {
+        if (!occupied.contains(i)) {
+          targetSlot = i;
+          break;
+        }
+      }
+      if (targetSlot < 0) targetSlot = 0;
+    }
+
+    await DatabaseHelper.instance.pinThought(id, position: targetSlot, deviceId: deviceId);
+    await loadThoughts();
+    return true;
+  }
+
+  Future<void> unpinFromBoard(String id) async {
+    final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
+    await DatabaseHelper.instance.unpinThought(id, deviceId: deviceId);
+    await loadThoughts();
+  }
+
+  Future<bool> togglePinToBoard(String id) async {
+    final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
+    if (existing.isEmpty) return false;
+    if (isPinned(existing)) {
+      await unpinFromBoard(id);
+      return false;
+    } else {
+      return await pinToBoard(id);
+    }
+  }
+
+  Future<void> reorderBoard(int oldIndex, int newIndex) async {
+    final current = List<Map<String, dynamic>>.from(pinnedThoughts);
+    if (oldIndex < 0 || oldIndex >= current.length || newIndex < 0 || newIndex >= current.length) return;
+
+    final item = current.removeAt(oldIndex);
+    current.insert(newIndex, item);
+
+    final positions = <String, int>{};
+    for (int i = 0; i < current.length; i++) {
+      positions[current[i]['id'] as String] = i;
+    }
+
+    final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
+    await DatabaseHelper.instance.updateBoardPositions(positions, deviceId: deviceId);
+    await loadThoughts();
+  }
+
+  Future<Map<String, dynamic>> copyThought(String id) async {
+    final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
+    if (existing.isEmpty) throw Exception('Thought not found');
+
+    final content = existing['content'] as String? ?? '';
+    final bucket = existing['bucket'] as String?;
+    final newThought = await addThought(
+      content,
+      existing['type'] as String? ?? 'thought',
+      tags: existing['tags'] as String? ?? '',
+      bucket: bucket,
+    );
+    final title = existing['title'] as String? ?? '';
+    if (title.isNotEmpty) {
+      await updateThoughtTitle(newThought['id'] as String, '$title (copy)', titleSource: 'user');
+    }
+    await loadThoughts();
+    return newThought;
+  }
+
+  Future<SplitResult> splitThought(String id, List<String> tasks) async {
+    final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
+    final bucket = existing['bucket'] as String?;
+    int created = 0;
+    int pinned = 0;
+
+    for (final task in tasks) {
+      final trimmed = task.trim();
+      if (trimmed.isEmpty) continue;
+      final newT = await addThought(
+        trimmed,
+        'task',
+        tags: 'split-from-$id',
+        bucket: bucket,
+      );
+      created++;
+      if (!isBoardFull) {
+        final success = await pinToBoard(newT['id'] as String);
+        if (success) pinned++;
+      }
+    }
+
+    await loadThoughts();
+    return SplitResult(
+      createdCount: created,
+      pinnedCount: pinned,
+      bucketName: bucket,
+    );
   }
 
   /// Merges duplicate ideas, keeping the designated winner and deleting duplicates (Section 4)

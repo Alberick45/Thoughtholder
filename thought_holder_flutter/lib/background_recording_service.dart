@@ -5,9 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'database_helper.dart';
+import 'services/voice_segment_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
 import 'thought_provider.dart';
+import 'utils/app_logger.dart';
 import 'voice_transcription_service.dart';
 
 // Win32 Sleep Prevention FFI
@@ -28,6 +31,7 @@ class BackgroundRecordingService extends ChangeNotifier {
   String? _pauseReason;
   int _durationSeconds = 0;
   String? _activeAudioPath;
+  String? _lastCreatedRecordingId;
   Timer? _desktopTimer;
 
   bool get isRecording => _isRecording;
@@ -35,11 +39,27 @@ class BackgroundRecordingService extends ChangeNotifier {
   String? get pauseReason => _pauseReason;
   int get durationSeconds => _durationSeconds;
   String? get activeAudioPath => _activeAudioPath;
+  String? get lastCreatedRecordingId => _lastCreatedRecordingId;
 
   String get formattedDuration {
-    final mins = _durationSeconds / 60;
+    final mins = _durationSeconds ~/ 60;
     final secs = _durationSeconds % 60;
-    return '${mins.toInt().toString().padLeft(2, '0')}:${secs.toInt().toString().padLeft(2, '0')}';
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  static String formatSeconds(int totalSec) {
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  static String formatRecordingDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final month = months[dt.month - 1];
+    final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '${dt.day} $month, $hour:$min $ampm';
   }
 
   // Crash recovery state
@@ -97,16 +117,35 @@ class BackgroundRecordingService extends ChangeNotifier {
         'SetThreadExecutionState',
       );
       if (prevent) {
-        // ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001) | ES_AWAYMODE_REQUIRED (0x00000040)
         setThreadExecutionState(0x80000000 | 0x00000001 | 0x00000040);
       } else {
-        // ES_CONTINUOUS
         setThreadExecutionState(0x80000000);
       }
     } catch (_) {}
   }
 
-  // --- Check Unfinished Recording (Requirement F) ---
+  // --- Check Disk Space before long recordings (Requirement 7) ---
+  Future<bool> hasEnoughDiskSpace() async {
+    if (kIsWeb) return true;
+    try {
+      if (Platform.isWindows) {
+        final res = await Process.run('powershell', [
+          '-NoProfile',
+          '-Command',
+          '(Get-PSDrive C).Free / 1MB'
+        ]);
+        if (res.exitCode == 0) {
+          final freeMb = double.tryParse(res.stdout.toString().trim());
+          if (freeMb != null && freeMb < 100) {
+            return false;
+          }
+        }
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  // --- Check Unfinished Recording and Auto-Recover (Requirement 1) ---
   Future<void> checkUnfinishedRecording() async {
     if (kIsWeb) return;
     try {
@@ -115,7 +154,38 @@ class BackgroundRecordingService extends ChangeNotifier {
       if (await unfinishedFile.exists()) {
         final len = await unfinishedFile.length();
         if (len > 4000) {
-          _unfinishedRecordingPath = unfinishedFile.path;
+          // Repair 44-byte RIFF header so audio is valid and playable
+          await VoiceSegmentService.instance.repairWavHeader(unfinishedFile);
+
+          final savedDir = Directory('${docs.path}/saved_audio');
+          if (!await savedDir.exists()) await savedDir.create(recursive: true);
+
+          final recId = 'rec_recovered_${DateTime.now().millisecondsSinceEpoch}';
+          final recoveredPath = '${savedDir.path}/$recId.wav';
+          await unfinishedFile.copy(recoveredPath);
+          try { await unfinishedFile.delete(); } catch (_) {}
+
+          final pcmBytes = (await File(recoveredPath).length()) - 44;
+          final durationSec = (pcmBytes / 32000).round();
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final retentionDays = _lastSettings?.audioRetentionDays ?? 7;
+
+          await DatabaseHelper.instance.insertVoiceRecording({
+            'id': recId,
+            'file_path': recoveredPath,
+            'duration_seconds': durationSec > 0 ? durationSec : 1,
+            'created_at': now,
+            'status': 'saved',
+            'total_segments': 1,
+            'completed_segments': 0,
+            'error_message': 'Recovered after unexpected app close.',
+            'transcript': null,
+            'associated_thought_id': null,
+            'audio_kept_until': now + (retentionDays * 86400000),
+          });
+
+          _unfinishedRecordingPath = recoveredPath;
+          AppLogger.info('BackgroundRecording', 'Recovered unfinished recording: $recoveredPath ($durationSec sec)');
           notifyListeners();
         } else {
           try {
@@ -123,7 +193,9 @@ class BackgroundRecordingService extends ChangeNotifier {
           } catch (_) {}
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.error('BackgroundRecording', 'Error recovering unfinished recording: $e');
+    }
   }
 
   Future<void> discardUnfinishedRecording() async {
@@ -142,7 +214,12 @@ class BackgroundRecordingService extends ChangeNotifier {
     _lastSettings = settings;
     if (_isRecording) return false;
 
-    // Play recording started tone BEFORE opening microphone (Section 1 & 3)
+    // Check disk space before recording
+    final spaceOk = await hasEnoughDiskSpace();
+    if (!spaceOk) {
+      AppLogger.info('BackgroundRecording', 'Low disk space (<100MB) before recording');
+    }
+
     try {
       if (settings.soundsEnabled) {
         await SoundService.instance.play(SoundEvent.recordStart, settings: settings);
@@ -168,7 +245,7 @@ class BackgroundRecordingService extends ChangeNotifier {
         notifyListeners();
         return _isRecording;
       } catch (e) {
-        debugPrint('[BackgroundRecording] Android start failed: $e');
+        AppLogger.error('BackgroundRecording', 'Android start failed: $e');
         return false;
       }
     } else {
@@ -200,7 +277,7 @@ class BackgroundRecordingService extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (e) {
-        debugPrint('[BackgroundRecording] Desktop start failed: $e');
+        AppLogger.error('BackgroundRecording', 'Desktop start failed: $e');
         _setWindowsSleepPrevention(false);
         return false;
       }
@@ -213,6 +290,7 @@ class BackgroundRecordingService extends ChangeNotifier {
     if (!_isRecording && _activeAudioPath == null) return null;
 
     final recordedPath = _activeAudioPath;
+    final finalDurationSec = _durationSeconds;
     _isRecording = false;
     _isPaused = false;
     _pauseReason = null;
@@ -231,7 +309,6 @@ class BackgroundRecordingService extends ChangeNotifier {
     }
 
     SoundService.instance.notifyRecordingStopped();
-    // Play recording saved tone AFTER microphone closes (Section 1 & 3)
     try {
       if (s != null && s.soundsEnabled) {
         await SoundService.instance.play(SoundEvent.recordSaved, settings: s);
@@ -241,19 +318,40 @@ class BackgroundRecordingService extends ChangeNotifier {
     notifyListeners();
 
     if (recordedPath != null && await File(recordedPath).exists()) {
-      // Move active_unfinished.wav to a unique permanent voice note file
+      // Repair WAV header before moving to permanent location
+      await VoiceSegmentService.instance.repairWavHeader(File(recordedPath));
+
       final docs = await getApplicationDocumentsDirectory();
       final savedDir = Directory('${docs.path}/saved_audio');
       if (!await savedDir.exists()) await savedDir.create(recursive: true);
 
-      final finalPath =
-          '${savedDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final recId = 'rec_${DateTime.now().millisecondsSinceEpoch}';
+      final finalPath = '${savedDir.path}/$recId.wav';
       final file = File(recordedPath);
       await file.copy(finalPath);
       try {
         await file.delete();
       } catch (_) {}
 
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final retentionDays = s?.audioRetentionDays ?? 7;
+
+      // Register in voice_recordings table immediately (Part 2: Save audio first)
+      await DatabaseHelper.instance.insertVoiceRecording({
+        'id': recId,
+        'file_path': finalPath,
+        'duration_seconds': finalDurationSec > 0 ? finalDurationSec : 1,
+        'created_at': now,
+        'status': 'saved',
+        'total_segments': 1,
+        'completed_segments': 0,
+        'error_message': null,
+        'transcript': null,
+        'associated_thought_id': null,
+        'audio_kept_until': now + (retentionDays * 86400000),
+      });
+
+      _lastCreatedRecordingId = recId;
       _activeAudioPath = null;
       return finalPath;
     }
@@ -262,39 +360,122 @@ class BackgroundRecordingService extends ChangeNotifier {
     return null;
   }
 
-  // --- Process and Save Audio (Groq Whisper with Offline Audio Fallback) ---
+  // --- Process and Save Audio (Segmented Groq Whisper with Stitching & Retry) ---
   Future<void> processAndSaveThought({
     required String audioPath,
     required ThoughtProvider thoughtProvider,
     required SettingsService settings,
     required void Function(String message, {VoidCallback? onUndo, VoidCallback? onTryAgain}) onFeedback,
+    String? existingRecordingId,
   }) async {
     final file = File(audioPath);
     if (!await file.exists()) return;
 
+    final recId = existingRecordingId ?? _lastCreatedRecordingId ?? 'rec_${DateTime.now().millisecondsSinceEpoch}';
     final hasKey = settings.hasGroqKey;
+    final now = DateTime.now();
 
-    // Check Groq reachability if key present
     bool canTranscribe = false;
     if (hasKey) {
       canTranscribe = await _transcriptionService.checkGroqReachability(settings.groqApiKey);
     }
 
     if (canTranscribe) {
-      onFeedback('Turning your voice into text…');
+      onFeedback('Preparing voice note for transcription…');
+
       try {
-        final text = await _transcriptionService.transcribeAudioFile(
-          audioPath,
-          settings.groqApiKey,
-          settings.whisperPrompt,
+        // Split audio into 90-second segments with 2s overlap
+        final docs = await getApplicationDocumentsDirectory();
+        final segDir = Directory('${docs.path}/audio_segments/$recId');
+        final segments = await VoiceSegmentService.instance.splitWavFile(
+          wavFile: file,
+          outputDir: segDir,
+          segmentDurationSec: 90,
+          overlapSec: 2,
         );
 
-        if (text.trim().isNotEmpty) {
-          await thoughtProvider.addThought(
-            text.trim(),
+        final totalSegments = segments.length;
+        await DatabaseHelper.instance.updateVoiceRecording(recId, {
+          'status': 'transcribing',
+          'total_segments': totalSegments,
+        });
+
+        // Store segments in DB
+        for (final seg in segments) {
+          final segId = 'seg_${recId}_${seg.index}';
+          await DatabaseHelper.instance.insertVoiceSegment({
+            'id': segId,
+            'recording_id': recId,
+            'segment_index': seg.index,
+            'file_path': seg.filePath,
+            'start_ms': seg.startMs,
+            'end_ms': seg.endMs,
+            'status': 'pending',
+            'transcript': null,
+            'error_message': null,
+            'retry_count': 0,
+          });
+        }
+
+        int completed = 0;
+        final segmentRows = await DatabaseHelper.instance.fetchVoiceSegments(recId);
+
+        for (int i = 0; i < segmentRows.length; i++) {
+          final sRow = segmentRows[i];
+          final sId = sRow['id'] as String;
+          final sPath = sRow['file_path'] as String;
+
+          if (sRow['status'] == 'done' && (sRow['transcript'] as String?)?.isNotEmpty == true) {
+            completed++;
+            continue;
+          }
+
+          onFeedback('Transcribing part ${i + 1} of $totalSegments…');
+
+          try {
+            final partText = await _transcriptionService.transcribeAudioFile(
+              sPath,
+              settings.groqApiKey,
+              settings.whisperPrompt,
+            );
+
+            await DatabaseHelper.instance.updateVoiceSegment(sId, {
+              'status': 'done',
+              'transcript': partText,
+              'error_message': null,
+            });
+            completed++;
+          } catch (e) {
+            AppLogger.error('BackgroundRecording', 'Segment $i failed: $e');
+            await DatabaseHelper.instance.updateVoiceSegment(sId, {
+              'status': 'failed',
+              'error_message': e.toString(),
+            });
+          }
+
+          await DatabaseHelper.instance.updateVoiceRecording(recId, {
+            'completed_segments': completed,
+          });
+        }
+
+        // Fetch all updated segments and stitch in order
+        final updatedSegments = await DatabaseHelper.instance.fetchVoiceSegments(recId);
+        final stitched = VoiceSegmentService.instance.stitchTranscripts(updatedSegments);
+
+        if (stitched.isNotEmpty) {
+          final thought = await thoughtProvider.addThought(
+            stitched,
             'thought',
             tags: 'whisper-voice',
           );
+
+          await DatabaseHelper.instance.updateVoiceRecording(recId, {
+            'status': 'done',
+            'transcript': stitched,
+            'associated_thought_id': thought['id'],
+            'error_message': null,
+          });
+
           SoundService.instance.play(SoundEvent.save, settings: settings);
           onFeedback(
             'Saved to Unsorted',
@@ -309,30 +490,202 @@ class BackgroundRecordingService extends ChangeNotifier {
           return;
         }
       } catch (e) {
-        debugPrint('[BackgroundRecording] Transcription error: $e');
+        AppLogger.error('BackgroundRecording', 'Transcription pipeline failed: $e');
+        await DatabaseHelper.instance.updateVoiceRecording(recId, {
+          'status': 'failed',
+          'error_message': e.toString(),
+        });
       }
     }
 
-    // Fallback: Never discard audio (UPDATE 4 - Section A)
-    // Keep the audio and show "Saved. Text will be added when Groq is available." with a "Try again" button.
+    // Fallback: Never lose a voice note!
+    // Create thought in Unsorted holding the audio path, with status 'failed' in voice recordings
+    final dateStr = formatRecordingDate(now);
     final durationStr = formattedDuration;
-    await thoughtProvider.addThought(
-      'Voice note ($durationStr)',
+    final fallbackTitle = 'Voice note $dateStr ($durationStr), not transcribed yet';
+
+    final thought = await thoughtProvider.addThought(
+      fallbackTitle,
       'thought',
       tags: 'voice-pending-groq:$audioPath',
     );
+
+    await DatabaseHelper.instance.updateVoiceRecording(recId, {
+      'status': 'failed',
+      'error_message': canTranscribe
+          ? 'Transcription failed. You can retry anytime.'
+          : 'Offline or Groq unreachable. Text will be added when online.',
+      'associated_thought_id': thought['id'],
+    });
+
     SoundService.instance.play(SoundEvent.save, settings: settings);
 
     onFeedback(
       'Saved. Text will be added when Groq is available.',
       onTryAgain: () async {
-        await processAndSaveThought(
-          audioPath: audioPath,
+        await retryRecording(
+          recId,
           thoughtProvider: thoughtProvider,
           settings: settings,
           onFeedback: onFeedback,
         );
       },
     );
+  }
+
+  /// Retries transcription for an entire voice recording with one click
+  Future<bool> retryRecording(
+    String recordingId, {
+    required ThoughtProvider thoughtProvider,
+    required SettingsService settings,
+    void Function(String message)? onFeedback,
+  }) async {
+    final rec = await DatabaseHelper.instance.fetchVoiceRecording(recordingId);
+    if (rec == null) return false;
+
+    final filePath = rec['file_path'] as String;
+    if (!await File(filePath).exists()) {
+      onFeedback?.call('Audio file not found on disk');
+      return false;
+    }
+
+    onFeedback?.call('Retrying transcription…');
+    await processAndSaveThought(
+      audioPath: filePath,
+      thoughtProvider: thoughtProvider,
+      settings: settings,
+      existingRecordingId: recordingId,
+      onFeedback: (msg, {onTryAgain, onUndo}) => onFeedback?.call(msg),
+    );
+    return true;
+  }
+
+  /// Retries specifically the failed segments of a recording
+  Future<bool> retryFailedSegments(
+    String recordingId, {
+    required ThoughtProvider thoughtProvider,
+    required SettingsService settings,
+    void Function(String message)? onFeedback,
+  }) async {
+    final segments = await DatabaseHelper.instance.fetchVoiceSegments(recordingId);
+    final failed = segments.where((s) => s['status'] == 'failed' || s['status'] == 'pending').toList();
+    if (failed.isEmpty) return true;
+
+    int completed = segments.where((s) => s['status'] == 'done').length;
+
+    for (int i = 0; i < failed.length; i++) {
+      final seg = failed[i];
+      final segId = seg['id'] as String;
+      final segPath = seg['file_path'] as String;
+      onFeedback?.call('Retrying part ${seg['segment_index'] + 1}…');
+
+      try {
+        final text = await _transcriptionService.transcribeAudioFile(
+          segPath,
+          settings.groqApiKey,
+          settings.whisperPrompt,
+        );
+        await DatabaseHelper.instance.updateVoiceSegment(segId, {
+          'status': 'done',
+          'transcript': text,
+          'error_message': null,
+        });
+        completed++;
+      } catch (e) {
+        await DatabaseHelper.instance.updateVoiceSegment(segId, {
+          'status': 'failed',
+          'error_message': e.toString(),
+        });
+      }
+    }
+
+    await DatabaseHelper.instance.updateVoiceRecording(recordingId, {
+      'completed_segments': completed,
+    });
+
+    final allUpdated = await DatabaseHelper.instance.fetchVoiceSegments(recordingId);
+    final stitched = VoiceSegmentService.instance.stitchTranscripts(allUpdated);
+
+    if (stitched.isNotEmpty) {
+      final rec = await DatabaseHelper.instance.fetchVoiceRecording(recordingId);
+      final thoughtId = rec?['associated_thought_id'] as String?;
+      if (thoughtId != null && thoughtId.isNotEmpty) {
+        await thoughtProvider.updateContent(thoughtId, stitched);
+      }
+      await DatabaseHelper.instance.updateVoiceRecording(recordingId, {
+        'status': 'done',
+        'transcript': stitched,
+      });
+      onFeedback?.call('Transcription complete!');
+      return true;
+    }
+    return false;
+  }
+
+  /// Automatically retries any pending or failed recordings on app start or internet reconnect
+  Future<void> autoRetryPendingAndFailed(
+    SettingsService settings,
+    ThoughtProvider thoughtProvider,
+  ) async {
+    if (!settings.hasGroqKey) return;
+    final isOnline = await _transcriptionService.checkGroqReachability(settings.groqApiKey);
+    if (!isOnline) return;
+
+    try {
+      final recordings = await DatabaseHelper.instance.fetchVoiceRecordings();
+      final toRetry = recordings.where((r) =>
+          r['status'] == 'failed' || r['status'] == 'saved' || r['status'] == 'transcribing').toList();
+
+      for (final rec in toRetry) {
+        final recId = rec['id'] as String;
+        final path = rec['file_path'] as String;
+        if (await File(path).exists()) {
+          await processAndSaveThought(
+            audioPath: path,
+            thoughtProvider: thoughtProvider,
+            settings: settings,
+            existingRecordingId: recId,
+            onFeedback: (msg, {onTryAgain, onUndo}) {},
+          );
+        }
+      }
+    } catch (e) {
+      AppLogger.error('BackgroundRecording', 'Auto-retry failed: $e');
+    }
+  }
+
+  /// Cleans up audio files whose transcripts have been saved for > 7 days (Requirement 2)
+  Future<void> cleanupExpiredAudio(SettingsService settings) async {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final recordings = await DatabaseHelper.instance.fetchVoiceRecordings();
+
+      for (final rec in recordings) {
+        final status = rec['status'] as String?;
+        final keptUntil = (rec['audio_kept_until'] as num?)?.toInt() ?? 0;
+        final thoughtId = rec['associated_thought_id'] as String?;
+        final path = rec['file_path'] as String?;
+
+        // NEVER delete audio until its transcript is saved and associated with a thought!
+        if (status == 'done' && thoughtId != null && keptUntil > 0 && now >= keptUntil) {
+          if (path != null) {
+            final f = File(path);
+            if (await f.exists()) {
+              try { await f.delete(); } catch (_) {}
+            }
+          }
+          // Also clean up segment directory if exists
+          try {
+            final docs = await getApplicationDocumentsDirectory();
+            final segDir = Directory('${docs.path}/audio_segments/${rec['id']}');
+            if (await segDir.exists()) {
+              await segDir.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      AppLogger.error('BackgroundRecording', 'Audio cleanup error: $e');
+    }
   }
 }

@@ -190,6 +190,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               SnackBar(
                 duration: const Duration(seconds: 8),
                 behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,6 +219,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                         SnackBar(
                           content: Text(res.message),
                           behavior: SnackBarBehavior.floating,
+                          margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
                         ),
                       );
                     }
@@ -331,7 +333,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
           body: SwipeTabs(
             currentIndex: currentIndex,
-            tabLabels: const ['Capture', 'Stream'],
+            tabLabels: const ['Speak', 'Board'],
             enabled: settings.swipeCaptureStream &&
                 !isBucketOpen &&
                 !nav.isTrashOpen &&
@@ -373,25 +375,25 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               items: [
                 BottomNavigationBarItem(
                   icon: Semantics(
-                    label: 'Capture, tab 1 of 2${liveIndex == 0 ? ', selected' : ''}',
+                    label: 'Speak, tab 1 of 2${liveIndex == 0 ? ', selected' : ''}',
                     child: const Icon(Icons.mic_outlined, size: 26),
                   ),
                   activeIcon: Semantics(
-                    label: 'Capture, tab 1 of 2, selected',
+                    label: 'Speak, tab 1 of 2, selected',
                     child: const Icon(Icons.mic, size: 26),
                   ),
-                  label: 'Capture',
+                  label: 'Speak',
                 ),
                 BottomNavigationBarItem(
                   icon: Semantics(
-                    label: 'Stream, tab 2 of 2${liveIndex == 1 ? ', selected' : ''}',
-                    child: const Icon(Icons.auto_awesome_outlined, size: 26),
+                    label: 'Board, tab 2 of 2${liveIndex == 1 ? ', selected' : ''}',
+                    child: const Icon(Icons.push_pin_outlined, size: 26),
                   ),
                   activeIcon: Semantics(
-                    label: 'Stream, tab 2 of 2, selected',
-                    child: const Icon(Icons.auto_awesome, size: 26),
+                    label: 'Board, tab 2 of 2, selected',
+                    child: const Icon(Icons.push_pin, size: 26),
                   ),
-                  label: 'Stream',
+                  label: 'Board',
                 ),
               ],
             ),

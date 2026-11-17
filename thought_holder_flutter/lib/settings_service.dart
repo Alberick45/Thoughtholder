@@ -203,6 +203,14 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
+  /// Days to retain voice note audio after successful transcription (default 7 days).
+  int get audioRetentionDays => _box.get('audio_retention_days', defaultValue: 7) as int;
+
+  Future<void> setAudioRetentionDays(int days) async {
+    await _box.put('audio_retention_days', days);
+    notifyListeners();
+  }
+
   /// Check if Google Drive Backup is enabled.
   bool get googleDriveBackup => _box.get('google_drive_backup', defaultValue: false);
 

@@ -144,6 +144,24 @@ class BackupService {
 
     final sizeBytes = await targetFile.length();
 
+    // Back up pending audio files (Part 2: Requirement 7)
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final savedAudioDir = Directory('${docs.path}/saved_audio');
+      if (await savedAudioDir.exists()) {
+        final backupAudioDir = Directory(join(backupsDir.path, 'pending_audio_$timestampStr'));
+        final audioFiles = savedAudioDir.listSync().whereType<File>().toList();
+        if (audioFiles.isNotEmpty) {
+          await backupAudioDir.create(recursive: true);
+          for (final f in audioFiles) {
+            await f.copy(join(backupAudioDir.path, basename(f.path)));
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.info('BackupService', 'Pending audio backup skipped/error: $e');
+    }
+
     // Prune older backups to keep the newest 5
     await _pruneOldBackups(backupsDir, keep: 5);
 

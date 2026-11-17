@@ -15,6 +15,7 @@ import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
 import 'widgets/keyboard_safe_sheet.dart';
+import 'widgets/sticky_note_board.dart';
 import 'widgets/swipe_tabs.dart';
 import 'background_recording_service.dart';
 
@@ -28,6 +29,7 @@ class StreamScreen extends StatefulWidget {
 class _StreamScreenState extends State<StreamScreen> {
   bool _isModalOpen = false;
   bool _splitPromptChecked = false;
+  bool _isBoardExpanded = false;
   int _visibleBucketIdeasCount = 20;
   int _visibleDoneCount = 9; // UPDATE 3: 9 at a time (3x3)
   int _visibleTrashCount = 12;
@@ -106,6 +108,13 @@ class _StreamScreenState extends State<StreamScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLog149Prompt();
+      if (mounted) {
+        final settings = context.read<SettingsService>();
+        final provider = context.read<ThoughtProvider>();
+        final bg = context.read<BackgroundRecordingService>();
+        bg.autoRetryPendingAndFailed(settings, provider);
+        bg.cleanupExpiredAudio(settings);
+      }
     });
   }
 
@@ -264,6 +273,7 @@ class _StreamScreenState extends State<StreamScreen> {
         backgroundColor: colors.card,
         duration: const Duration(seconds: 6),
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(color: colors.line),
@@ -455,6 +465,17 @@ class _StreamScreenState extends State<StreamScreen> {
       );
     }
 
+    // Expanded Fullscreen Sticky Note Board (PART 1: STICKY NOTE BOARD)
+    if (_isBoardExpanded && !nav.isTrashOpen) {
+      return SafeArea(
+        child: StickyNoteBoard(
+          isExpandedView: true,
+          onOpenSorted: () => setState(() => _isBoardExpanded = false),
+          onToggleExpand: () => setState(() => _isBoardExpanded = false),
+        ),
+      );
+    }
+
     final targetPage = nav.streamSubTab == 'unsorted' ? 1.0 : 0.0;
     if ((_liveStreamPage - targetPage).abs() > 0.01 && !nav.isTrashOpen) {
       _liveStreamPage = targetPage;
@@ -480,7 +501,57 @@ class _StreamScreenState extends State<StreamScreen> {
           children: [
             Column(
               children: [
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
+
+                // Sticky Note Board preview (about quarter of the screen) with click to expand
+                if (!nav.isTrashOpen) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            foregroundColor: colors.gold,
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          ),
+                          icon: const Icon(Icons.push_pin, size: 14),
+                          label: Text(
+                            'Sticky Board (${provider.pinnedCount}/8)',
+                            style: appFont(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          onPressed: () => setState(() => _isBoardExpanded = true),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            foregroundColor: colors.gold,
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          ),
+                          icon: const Icon(Icons.fullscreen, size: 16),
+                          label: Text(
+                            'Expand Board',
+                            style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                          onPressed: () => setState(() => _isBoardExpanded = true),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    height: 165,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: StickyNoteBoard(
+                        isExpandedView: false,
+                        onOpenSorted: () {},
+                        onToggleExpand: () => setState(() => _isBoardExpanded = true),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+
                 // First-time sound choice card (Section 2)
                 if (!settings.soundPromptAnswered) ...[
                   _buildSoundChoiceCard(settings, colors),
@@ -3685,6 +3756,68 @@ class _StreamScreenState extends State<StreamScreen> {
             ),
             const Divider(height: 12),
 
+            // 0. Pin to board / Remove from board (Requirement 5 & 6)
+            Builder(
+              builder: (context) {
+                final isPinned = provider.isPinned(idea);
+                final isBoardFull = provider.isBoardFull;
+
+                if (isPinned) {
+                  return buildMenuItem(
+                    icon: Icons.push_pin,
+                    iconColor: colors.gold,
+                    textColor: colors.gold,
+                    label: 'Remove from board',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await provider.unpinFromBoard(idea['id']);
+                      _showUndoSnackBar('Removed "$ideaName" from board', () {
+                        provider.pinToBoard(idea['id']);
+                      });
+                    },
+                  );
+                } else if (isBoardFull) {
+                  return buildMenuItem(
+                    icon: Icons.push_pin_outlined,
+                    iconColor: colors.mute,
+                    textColor: colors.mute,
+                    label: 'Pin to board',
+                    trailing: Text(
+                      'Board full (8/8)',
+                      style: appFont(color: colors.mute, fontSize: 11),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showUndoSnackBar(
+                        'Board is full (8/8). Remove a note from the board first.',
+                        () {},
+                      );
+                    },
+                  );
+                } else {
+                  return buildMenuItem(
+                    icon: Icons.push_pin_outlined,
+                    iconColor: colors.gold,
+                    label: 'Pin to board',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      final ok = await provider.pinToBoard(idea['id']);
+                      if (ok) {
+                        _showUndoSnackBar('Pinned "$ideaName" to board', () {
+                          provider.unpinFromBoard(idea['id']);
+                        });
+                      } else {
+                        _showUndoSnackBar(
+                          'Board is full (8/8). Remove a note from the board first.',
+                          () {},
+                        );
+                      }
+                    },
+                  );
+                }
+              },
+            ),
+
             // 1. Edit
             buildMenuItem(
               icon: Icons.edit_outlined,
@@ -5005,15 +5138,25 @@ class SortedIdeaCard extends StatelessWidget {
                                   const SizedBox(width: 8),
                                 ],
                                 Expanded(
-                                  child: Text(
-                                    ideaName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: appFont(
-                                      color: colors.gold,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          ideaName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: appFont(
+                                            color: colors.gold,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                      if (provider.isPinned(idea)) ...[
+                                        const SizedBox(width: 4),
+                                        Icon(Icons.push_pin, size: 14, color: colors.gold),
+                                      ],
+                                    ],
                                   ),
                                 ),
                               ],
@@ -5258,15 +5401,25 @@ class FixedIdeaCard extends StatelessWidget {
                         Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: appFont(
-                                  color: colors.gold,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: appFont(
+                                        color: colors.gold,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  if (provider.isPinned(idea)) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.push_pin, size: 14, color: colors.gold),
+                                  ],
+                                ],
                               ),
                             ),
                             if (isFirst) ...[

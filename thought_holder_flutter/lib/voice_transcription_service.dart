@@ -246,9 +246,6 @@ class VoiceTranscriptionService {
         prompt: settings.whisperPrompt,
       );
 
-      // Clean up temporary audio file after successful transcription
-      try { await file.delete(); } catch (_) {}
-
       return TranscriptionResult(
         text: text,
         engine: TranscriptionEngine.whisper,
@@ -256,11 +253,11 @@ class VoiceTranscriptionService {
     } catch (e) {
       AppLogger.error('VoiceTranscription', 'Groq upload failed, saving for pending retry', e);
       await _savePendingOfflineAudio(recordedFilePath);
-      return const TranscriptionResult(
+      return TranscriptionResult(
         text: '',
         engine: TranscriptionEngine.whisper,
         pendingOffline: true,
-        errorMessage: 'Network error. Audio saved offline and will transcribe when online.',
+        errorMessage: 'Transcription failed: $e. Audio safely stored for retry.',
       );
     }
   }
@@ -273,30 +270,50 @@ class VoiceTranscriptionService {
     return _transcribeWithGroq(filePath: filePath, apiKey: apiKey, prompt: prompt);
   }
 
-  /// Multi-part POST to Groq Whisper endpoint
+  /// Multi-part POST to Groq Whisper endpoint with exponential backoff
   Future<String> _transcribeWithGroq({
     required String filePath,
     required String apiKey,
     required String prompt,
+    int maxRetries = 3,
   }) async {
     final uri = Uri.parse(groqTranscriptionsUrl);
-    final request = http.MultipartRequest('POST', uri)
-      ..headers['Authorization'] = 'Bearer ${apiKey.trim()}'
-      ..fields['model'] = 'whisper-large-v3-turbo'
-      ..fields['language'] = 'en'
-      ..fields['prompt'] = prompt
-      ..files.add(await http.MultipartFile.fromPath('file', filePath));
+    String lastError = '';
 
-    final streamedResponse = await request.send().timeout(const Duration(seconds: 40));
-    final response = await http.Response.fromStream(streamedResponse);
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        final request = http.MultipartRequest('POST', uri)
+          ..headers['Authorization'] = 'Bearer ${apiKey.trim()}'
+          ..fields['model'] = 'whisper-large-v3-turbo'
+          ..fields['language'] = 'en'
+          ..fields['prompt'] = prompt
+          ..files.add(await http.MultipartFile.fromPath('file', filePath));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final text = (data['text'] as String?)?.trim() ?? '';
-      return text;
-    } else {
-      throw Exception('Groq API Error (${response.statusCode}): ${AppLogger.sanitize(response.body)}');
+        final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+        final response = await http.Response.fromStream(streamedResponse);
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final text = (data['text'] as String?)?.trim() ?? '';
+          return text;
+        } else {
+          lastError = 'Groq API Error (${response.statusCode}): ${AppLogger.sanitize(response.body)}';
+          if ((response.statusCode == 429 || response.statusCode >= 500) && attempt < maxRetries) {
+            await Future.delayed(Duration(seconds: attempt * 2));
+            continue;
+          }
+          throw Exception(lastError);
+        }
+      } catch (e) {
+        lastError = e.toString();
+        if (attempt < maxRetries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+        } else {
+          rethrow;
+        }
+      }
     }
+    throw Exception(lastError);
   }
 
   Future<void> _savePendingOfflineAudio(String sourcePath) async {
