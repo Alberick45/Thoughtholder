@@ -272,7 +272,7 @@ class _StreamScreenState extends State<StreamScreen> {
         backgroundColor: colors.card,
         duration: const Duration(seconds: 6),
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(color: colors.line),
@@ -502,64 +502,52 @@ class _StreamScreenState extends State<StreamScreen> {
               children: [
                 const SizedBox(height: 8),
 
-                // Sticky Note Board preview (about quarter of the screen) with click to expand
+                // Top Navigation Bar when inside Sort View (Requirement 7)
                 if (!nav.isTrashOpen) ...[
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                     child: Row(
                       children: [
                         // Back to Board button (Requirement 7)
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: colors.card,
+                            backgroundColor: const Color(0xFF1E222B),
                             foregroundColor: colors.gold,
                             elevation: 0,
-                            side: BorderSide(color: colors.gold, width: 1.5),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            side: BorderSide(color: colors.gold.withValues(alpha: 0.7), width: 1.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           icon: const Icon(Icons.push_pin, size: 15),
                           label: Text(
-                            '← Board (${provider.pinnedCount}/8)',
+                            '← Back to Board (${provider.pinnedCount}/8)',
                             style: appFont(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                           onPressed: () => nav.setBoardExpanded(true),
                         ),
                         const Spacer(),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: colors.gold,
-                            side: BorderSide(color: colors.line),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: colors.card,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: colors.line),
+                          ),
+                          child: Text(
+                            'SORT VIEW',
+                            style: appFont(
+                              color: colors.gold,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.5,
+                              fontSize: 11,
                             ),
                           ),
-                          icon: const Icon(Icons.open_in_full, size: 14),
-                          label: Text(
-                            'Open Full Board',
-                            style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                          onPressed: () => nav.setBoardExpanded(true),
                         ),
                       ],
                     ),
                   ),
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    height: 175,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: StickyNoteBoard(
-                        isExpandedView: false,
-                        onOpenSorted: () {},
-                        onToggleExpand: () => nav.setBoardExpanded(true),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
                 ],
 
                 // First-time sound choice card (Section 2)

@@ -100,10 +100,17 @@ void main() {
     await tester.pump();
     expect(find.text('BRAIN DUMP • BOARD'), findsOneWidget);
     expect(find.text('Sort'), findsOneWidget);
+    expect(find.textContaining('Sort: View all thoughts'), findsOneWidget);
     expect(find.text('0 / 8 pinned'), findsOneWidget);
 
-    // Tap Sort button
+    // Tap top Sort button
     await tester.tap(find.text('Sort'));
+    await tester.pump();
+    expect(sortedClicked, isTrue);
+
+    sortedClicked = false;
+    // Tap bottom Sort button
+    await tester.tap(find.textContaining('Sort: View all thoughts'));
     await tester.pump();
     expect(sortedClicked, isTrue);
   });

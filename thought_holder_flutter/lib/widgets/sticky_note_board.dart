@@ -5,6 +5,7 @@ import '../app_theme.dart';
 import '../settings_service.dart';
 import '../sound_service.dart';
 import '../thought_provider.dart';
+import '../settings_modal.dart';
 
 /// 8 Pastel post-it colors matching the design in Image 2
 const List<Color> kStickyNoteColors = [
@@ -237,7 +238,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             SnackBar(
               content: Text('Marked "$title" as done'),
               behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
             ),
           );
         }
@@ -255,7 +256,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             SnackBar(
               content: Text('Duplicated "$title"'),
               behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
             ),
           );
         }
@@ -267,7 +268,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             SnackBar(
               content: Text('Removed "$title" from board (kept in list)'),
               behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
             ),
           );
         }
@@ -280,7 +281,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             SnackBar(
               content: Text('Moved "$title" to trash'),
               behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
             ),
           );
         }
@@ -477,7 +478,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                     'Board is full (8/8). Remove a note from the board first.'),
                                 behavior: SnackBarBehavior.floating,
                                 margin: EdgeInsets.only(
-                                    bottom: 96, left: 16, right: 16),
+                                    bottom: 80, left: 16, right: 94),
                               ),
                             );
                           }
@@ -599,7 +600,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       ),
                       behavior: SnackBarBehavior.floating,
                       margin: const EdgeInsets.only(
-                          bottom: 96, left: 16, right: 16),
+                          bottom: 80, left: 16, right: 94),
                     ),
                   );
                 } else {
@@ -610,7 +611,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       ),
                       behavior: SnackBarBehavior.floating,
                       margin: const EdgeInsets.only(
-                          bottom: 96, left: 16, right: 16),
+                          bottom: 80, left: 16, right: 94),
                     ),
                   );
                 }
@@ -853,27 +854,36 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Bar: Prominent Sort button on left, Title center, Pinned count + Toggle right (matching Image 2)
+            // Top Bar: Prominent Sort button on left, Title center, Pinned count + Settings right (matching Image 2)
             Row(
               children: [
-                // "Sort" button (Requirement 7 & Image 2)
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.menu, size: 16),
-                  label: const Text('Sort'),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E222B),
-                    foregroundColor: const Color(0xFFFFD54F),
-                    side: const BorderSide(color: Color(0xFF333B48), width: 1.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    textStyle: appFont(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                    shape: RoundedRectangleBorder(
+                // Top-Left: "≡ Sort" button matching Image 2
+                InkWell(
+                  onTap: widget.onOpenSorted,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E222B),
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF333B48), width: 1.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.menu, size: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Sort',
+                          style: appFont(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onPressed: widget.onOpenSorted,
                 ),
 
                 const Spacer(),
@@ -912,18 +922,23 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                 ),
 
-                if (widget.onToggleExpand != null) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.fullscreen_exit,
-                      color: Color(0xFFFFD54F),
-                      size: 24,
-                    ),
-                    tooltip: 'Return to Stream',
-                    onPressed: widget.onToggleExpand,
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(
+                    Icons.wb_sunny_outlined,
+                    color: Color(0xFFFFD54F),
+                    size: 20,
                   ),
-                ],
+                  tooltip: 'Settings: connect Groq',
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (_) => const SettingsModal(),
+                    );
+                  },
+                ),
               ],
             ),
 
@@ -1076,6 +1091,39 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     },
                   );
                 },
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Small Sort Button at the bottom (Requirement: "small sort at the bottom")
+            Center(
+              child: InkWell(
+                onTap: widget.onOpenSorted,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E222B),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF333B48)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.menu, size: 14, color: Color(0xFFFFD54F)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Sort: View all thoughts (${provider.sortedCount} sorted, ${provider.unsortedCount} unsorted)',
+                        style: appFont(
+                          color: const Color(0xFFFFD54F),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1290,7 +1338,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     content: Text('Marked "$title" as done'),
                     behavior: SnackBarBehavior.floating,
                     margin: const EdgeInsets.only(
-                        bottom: 96, left: 16, right: 16),
+                        bottom: 80, left: 16, right: 94),
                   ),
                 );
               }
@@ -1330,7 +1378,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     content: Text('Duplicated "$title"'),
                     behavior: SnackBarBehavior.floating,
                     margin: const EdgeInsets.only(
-                        bottom: 96, left: 16, right: 16),
+                        bottom: 80, left: 16, right: 94),
                   ),
                 );
               }
@@ -1350,7 +1398,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     content: Text('Removed "$title" from board (kept in list)'),
                     behavior: SnackBarBehavior.floating,
                     margin: const EdgeInsets.only(
-                        bottom: 96, left: 16, right: 16),
+                        bottom: 80, left: 16, right: 94),
                   ),
                 );
               }
@@ -1372,7 +1420,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     content: Text('Moved "$title" to trash'),
                     behavior: SnackBarBehavior.floating,
                     margin: const EdgeInsets.only(
-                        bottom: 96, left: 16, right: 16),
+                        bottom: 80, left: 16, right: 94),
                   ),
                 );
               }

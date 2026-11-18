@@ -5,7 +5,7 @@ class NavigationNotifier extends ChangeNotifier {
   String _streamSubTab = 'sorted'; // When switching to Stream, Sorted is active
   bool _isTrashOpen = false;
   String? _selectedBucket;
-  bool _isBoardExpanded = false;
+  bool _isBoardExpanded = true; // Board tab defaults to full sticky note board
 
   int get mainTabIndex => _mainTabIndex;
   String get streamSubTab => _streamSubTab;
@@ -29,18 +29,25 @@ class NavigationNotifier extends ChangeNotifier {
     if (_mainTabIndex != index) {
       _mainTabIndex = index;
       if (index == 1) {
-        // Moving to Stream tab defaults to 'sorted'
+        // Switching to Board tab defaults to the Full Sticky Note Board
+        _isBoardExpanded = true;
         _streamSubTab = 'sorted';
         _selectedBucket = null;
         _isTrashOpen = false;
       }
       notifyListeners();
-    } else if (index == 1 && _isTrashOpen) {
-      // Tapping Stream while Trash is open closes Trash and returns to Sorted
-      _isTrashOpen = false;
-      _streamSubTab = 'sorted';
-      _selectedBucket = null;
-      notifyListeners();
+    } else if (index == 1) {
+      if (_isTrashOpen) {
+        _isTrashOpen = false;
+        _isBoardExpanded = true;
+        _streamSubTab = 'sorted';
+        _selectedBucket = null;
+        notifyListeners();
+      } else if (!_isBoardExpanded) {
+        // Tapping Board tab while inside Sort returns to the Board
+        _isBoardExpanded = true;
+        notifyListeners();
+      }
     }
   }
 
@@ -49,6 +56,7 @@ class NavigationNotifier extends ChangeNotifier {
     _streamSubTab = subTab;
     _isTrashOpen = false;
     _selectedBucket = null;
+    _isBoardExpanded = false; // Opens Sort / Stream list
     notifyListeners();
   }
 

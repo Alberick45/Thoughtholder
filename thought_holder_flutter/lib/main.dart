@@ -190,7 +190,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               SnackBar(
                 duration: const Duration(seconds: 8),
                 behavior: SnackBarBehavior.floating,
-                margin: const EdgeInsets.only(bottom: 96, left: 16, right: 16),
+                margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
