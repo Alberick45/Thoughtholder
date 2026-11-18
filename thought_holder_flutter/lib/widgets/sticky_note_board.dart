@@ -7,6 +7,7 @@ import '../sound_service.dart';
 import '../thought_provider.dart';
 import '../settings_modal.dart';
 import '../utils/title_generator.dart';
+import '../utils/app_toast.dart';
 
 /// 8 Pastel post-it colors matching the design in Image 2
 const List<Color> kStickyNoteColors = [
@@ -18,6 +19,19 @@ const List<Color> kStickyNoteColors = [
   Color(0xFFDDD6FE), // 5: Lavender / Lilac
   Color(0xFFFEF3C7), // 6: Cream / Off-white
   Color(0xFFBBF7D0), // 7: Pale Sage
+];
+
+/// Subtle natural rotations (tilts) for sticky notes on the board (-1.4° to +1.4°)
+/// anchored at Alignment.topCenter where the red pushpin is pinned
+const List<double> kStickyNoteRotations = [
+  -0.022, // Slot 0: ~ -1.26° (slight tilt left)
+   0.018, // Slot 1: ~ +1.03° (slight tilt right)
+  -0.012, // Slot 2: ~ -0.69° (very gentle tilt left)
+   0.025, // Slot 3: ~ +1.43° (gentle tilt right)
+   0.016, // Slot 4: ~ +0.92° (gentle tilt right)
+  -0.024, // Slot 5: ~ -1.38° (gentle tilt left)
+   0.014, // Slot 6: ~ +0.80° (gentle tilt right)
+  -0.016, // Slot 7: ~ -0.92° (gentle tilt left)
 ];
 
 class StickyNoteBoard extends StatefulWidget {
@@ -289,13 +303,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         await provider.markDone(id, true);
         SoundService.instance.play(SoundEvent.save, settings: settings);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Marked "$title" as done'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
-            ),
-          );
+          AppToast.show(context, message: 'Marked "$title" as done');
         }
         break;
       case 'split':
@@ -307,38 +315,21 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
       case 'copy':
         await provider.copyThought(id);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Duplicated "$title"'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
-            ),
-          );
+          AppToast.show(context, message: 'Duplicated "$title"');
         }
         break;
       case 'unpin':
         await provider.unpinFromBoard(id);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Removed "$title" from board (kept in list)'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
-            ),
-          );
+          AppToast.show(
+              context, message: 'Removed "$title" from board (kept in list)');
         }
         break;
       case 'trash':
         await provider.moveToTrash(id);
         SoundService.instance.play(SoundEvent.trash, settings: settings);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Moved "$title" to trash'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
-            ),
-          );
+          AppToast.show(context, message: 'Moved "$title" to trash');
         }
         break;
     }
@@ -527,14 +518,10 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                           Navigator.pop(ctx);
                           final ok = await provider.pinToBoard(t['id']);
                           if (!ok && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                    'Board is full (8/8). Remove a note from the board first.'),
-                                behavior: SnackBarBehavior.floating,
-                                margin: EdgeInsets.only(
-                                    bottom: 80, left: 16, right: 94),
-                              ),
+                            AppToast.show(
+                              context,
+                              message:
+                                  'Board is full (8/8). Remove a note from the board first.',
                             );
                           }
                         },
@@ -695,23 +682,16 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     ? 'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8). $originalMsg'
                     : 'Created and pinned ${result.createdCount} tasks in "$bucket". $originalMsg';
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(fullMsg),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                        bottom: 80, left: 16, right: 94),
-                    action: !keepOriginal
-                        ? SnackBarAction(
-                            label: 'UNDO',
-                            textColor: const Color(0xFFFFD54F),
-                            onPressed: () async {
-                              await provider.restoreFromTrash(thought['id']);
-                              await provider.loadThoughts();
-                            },
-                          )
-                        : null,
-                  ),
+                AppToast.show(
+                  context,
+                  message: fullMsg,
+                  actionLabel: !keepOriginal ? 'UNDO' : null,
+                  onAction: !keepOriginal
+                      ? () async {
+                          await provider.restoreFromTrash(thought['id']);
+                          await provider.loadThoughts();
+                        }
+                      : null,
                 );
               }
             },
@@ -915,22 +895,29 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       itemBuilder: (context, i) {
                         final thought = pinned[i];
                         final color = _getNoteColor(i);
+                        final rotationAngle =
+                            kStickyNoteRotations[i % kStickyNoteRotations.length] *
+                                0.7;
                         return SizedBox(
                           width: 180,
-                          child: GestureDetector(
-                            onTap: () {
-                              _showStickyNoteDetailPopup(
-                                  context, thought, color);
-                            },
-                            onSecondaryTapDown: (details) => _showNoteContextMenu(
-                                context, details.globalPosition, thought,
-                                color: color),
-                            child: _buildStickyNoteCard(
-                              thought: thought,
-                              color: color,
-                              isSelected: false,
-                              cellWidth: 180,
-                              cellHeight: 110,
+                          child: Transform.rotate(
+                            angle: rotationAngle,
+                            alignment: Alignment.topCenter,
+                            child: GestureDetector(
+                              onTap: () {
+                                _showStickyNoteDetailPopup(
+                                    context, thought, color);
+                              },
+                              onSecondaryTapDown: (details) => _showNoteContextMenu(
+                                  context, details.globalPosition, thought,
+                                  color: color),
+                              child: _buildStickyNoteCard(
+                                thought: thought,
+                                color: color,
+                                isSelected: false,
+                                cellWidth: 180,
+                                cellHeight: 110,
+                              ),
                             ),
                           ),
                         );
@@ -1078,6 +1065,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         final thought = pinned[slotIndex];
                         final isSelected = thought['id'] == _selectedThoughtId;
                         final color = _getNoteColor(slotIndex);
+                        final rotationAngle =
+                            kStickyNoteRotations[slotIndex % kStickyNoteRotations.length];
 
                         return DragTarget<int>(
                           onAcceptWithDetails: (details) {
@@ -1096,41 +1085,53 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   height: cellHeight,
                                   child: Opacity(
                                     opacity: 0.85,
-                                    child: _buildStickyNoteCard(
-                                      thought: thought,
-                                      color: color,
-                                      isSelected: false,
-                                      cellWidth: cellWidth,
-                                      cellHeight: cellHeight,
+                                    child: Transform.rotate(
+                                      angle: rotationAngle,
+                                      alignment: Alignment.topCenter,
+                                      child: _buildStickyNoteCard(
+                                        thought: thought,
+                                        color: color,
+                                        isSelected: false,
+                                        cellWidth: cellWidth,
+                                        cellHeight: cellHeight,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                               childWhenDragging: Opacity(
                                 opacity: 0.3,
-                                child: _buildStickyNoteCard(
-                                  thought: thought,
-                                  color: color,
-                                  isSelected: false,
-                                  cellWidth: cellWidth,
-                                  cellHeight: cellHeight,
+                                child: Transform.rotate(
+                                  angle: rotationAngle,
+                                  alignment: Alignment.topCenter,
+                                  child: _buildStickyNoteCard(
+                                    thought: thought,
+                                    color: color,
+                                    isSelected: false,
+                                    cellWidth: cellWidth,
+                                    cellHeight: cellHeight,
+                                  ),
                                 ),
                               ),
-                              child: GestureDetector(
-                                onTap: () {
-                                  _showStickyNoteDetailPopup(
-                                      context, thought, color);
-                                },
-                                onSecondaryTapDown: (details) =>
-                                    _showNoteContextMenu(
-                                        context, details.globalPosition, thought,
-                                        color: color),
-                                child: _buildStickyNoteCard(
-                                  thought: thought,
-                                  color: color,
-                                  isSelected: isSelected,
-                                  cellWidth: cellWidth,
-                                  cellHeight: cellHeight,
+                              child: Transform.rotate(
+                                angle: rotationAngle,
+                                alignment: Alignment.topCenter,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    _showStickyNoteDetailPopup(
+                                        context, thought, color);
+                                  },
+                                  onSecondaryTapDown: (details) =>
+                                      _showNoteContextMenu(
+                                          context, details.globalPosition, thought,
+                                          color: color),
+                                  child: _buildStickyNoteCard(
+                                    thought: thought,
+                                    color: color,
+                                    isSelected: isSelected,
+                                    cellWidth: cellWidth,
+                                    cellHeight: cellHeight,
+                                  ),
                                 ),
                               ),
                             );
@@ -1257,16 +1258,36 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // Main Note Body
+        // Main Note Body with Curved Post-it paper effect
         Container(
           decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(10),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomRight,
+              colors: [
+                color,
+                Color.lerp(color, Colors.white, 0.12)!,
+              ],
+              stops: const [0.72, 1.0],
+            ),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(4),
+              topRight: Radius.circular(4),
+              bottomLeft: Radius.circular(14),
+              bottomRight: Radius.circular(22), // Natural curved paper lift
+            ),
             boxShadow: [
+              // Curled paper lift shadow at bottom-right
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: isSelected ? 14 : 8,
-                offset: const Offset(2, 4),
+                color: Colors.black.withValues(alpha: isSelected ? 0.42 : 0.28),
+                blurRadius: isSelected ? 16 : 10,
+                offset: const Offset(4, 7),
+              ),
+              // Ambient soft contact shadow
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
@@ -1346,6 +1367,30 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           ),
         ),
 
+        // Subtle paper curl lift highlight at bottom-right corner
+        Positioned(
+          bottom: 0,
+          right: 0,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              borderRadius: const BorderRadius.only(
+                bottomRight: Radius.circular(22),
+              ),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.black.withValues(alpha: 0.0),
+                  Colors.black.withValues(alpha: 0.06),
+                  Colors.white.withValues(alpha: 0.22),
+                ],
+              ),
+            ),
+          ),
+        ),
+
         // Direct Positioned 3D Red Pushpin at top center (NO Stateless wrapper!)
         Positioned(
           top: -6,
@@ -1412,17 +1457,30 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  // Main Expanded Note Card
+                  // Main Expanded Note Card with curved paper styling
                   Container(
                     constraints: BoxConstraints(maxHeight: dialogMaxHeight),
                     decoration: BoxDecoration(
-                      color: noteColor,
-                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          noteColor,
+                          Color.lerp(noteColor, Colors.white, 0.10)!,
+                        ],
+                        stops: const [0.75, 1.0],
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(6),
+                        topRight: Radius.circular(6),
+                        bottomLeft: Radius.circular(18),
+                        bottomRight: Radius.circular(26),
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.45),
                           blurRadius: 24,
-                          offset: const Offset(0, 10),
+                          offset: const Offset(4, 10),
                         ),
                       ],
                     ),
@@ -1570,14 +1628,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   SoundService.instance.play(SoundEvent.save,
                                       settings: settings);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Marked "$title" as done'),
-                                        behavior: SnackBarBehavior.floating,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 80, left: 16, right: 94),
-                                      ),
-                                    );
+                                    AppToast.show(context,
+                                        message: 'Marked "$title" as done');
                                   }
                                 },
                               ),
@@ -1607,14 +1659,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   Navigator.pop(ctx);
                                   await provider.copyThought(id);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Duplicated "$title"'),
-                                        behavior: SnackBarBehavior.floating,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 80, left: 16, right: 94),
-                                      ),
-                                    );
+                                    AppToast.show(context,
+                                        message: 'Duplicated "$title"');
                                   }
                                 },
                               ),
@@ -1626,15 +1672,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   Navigator.pop(ctx);
                                   await provider.unpinFromBoard(id);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                            'Removed "$title" from board (kept in list)'),
-                                        behavior: SnackBarBehavior.floating,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 80, left: 16, right: 94),
-                                      ),
-                                    );
+                                    AppToast.show(context,
+                                        message:
+                                            'Removed "$title" from board (kept in list)');
                                   }
                                 },
                               ),
@@ -1648,14 +1688,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   SoundService.instance.play(SoundEvent.trash,
                                       settings: settings);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Moved "$title" to trash'),
-                                        behavior: SnackBarBehavior.floating,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 80, left: 16, right: 94),
-                                      ),
-                                    );
+                                    AppToast.show(context,
+                                        message: 'Moved "$title" to trash');
                                   }
                                 },
                               ),
@@ -1777,14 +1811,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               await provider.markDone(id, true);
               SoundService.instance.play(SoundEvent.save, settings: settings);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Marked "$title" as done'),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                        bottom: 80, left: 16, right: 94),
-                  ),
-                );
+                AppToast.show(context, message: 'Marked "$title" as done');
               }
             },
           ),
@@ -1817,14 +1844,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               setState(() => _selectedThoughtId = null);
               await provider.copyThought(id);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Duplicated "$title"'),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                        bottom: 80, left: 16, right: 94),
-                  ),
-                );
+                AppToast.show(context, message: 'Duplicated "$title"');
               }
             },
           ),
@@ -1837,13 +1857,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               setState(() => _selectedThoughtId = null);
               await provider.unpinFromBoard(id);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Removed "$title" from board (kept in list)'),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                        bottom: 80, left: 16, right: 94),
-                  ),
+                AppToast.show(
+                  context,
+                  message: 'Removed "$title" from board (kept in list)',
                 );
               }
             },
@@ -1859,14 +1875,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               await provider.moveToTrash(id);
               SoundService.instance.play(SoundEvent.trash, settings: settings);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Moved "$title" to trash'),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                        bottom: 80, left: 16, right: 94),
-                  ),
-                );
+                AppToast.show(context, message: 'Moved "$title" to trash');
               }
             },
           ),

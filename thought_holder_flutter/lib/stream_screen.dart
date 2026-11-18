@@ -18,6 +18,7 @@ import 'widgets/keyboard_safe_sheet.dart';
 import 'widgets/sticky_note_board.dart';
 import 'widgets/swipe_tabs.dart';
 import 'background_recording_service.dart';
+import 'utils/app_toast.dart';
 
 class StreamScreen extends StatefulWidget {
   const StreamScreen({super.key});
@@ -257,35 +258,17 @@ class _StreamScreenState extends State<StreamScreen> {
     }
   }
 
-  // --- 6-Second Undo Toast (Requirement 1) ---
+  // --- Toast Notification in Bottom-Left Message Box with [X] Close & Undo ---
   void _showUndoSnackBar(String message, VoidCallback onUndo) {
     final settings = context.read<SettingsService>();
-    final colors = AppColors.of(settings.theme);
-
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          style: appFont(color: colors.text, fontSize: 15),
-        ),
-        backgroundColor: colors.card,
-        duration: const Duration(seconds: 6),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 94),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: colors.line),
-        ),
-        action: SnackBarAction(
-          label: 'UNDO',
-          textColor: colors.gold,
-          onPressed: () {
-            SoundService.instance.play(SoundEvent.undo, settings: settings);
-            onUndo();
-          },
-        ),
-      ),
+    AppToast.show(
+      context,
+      message: message,
+      actionLabel: 'UNDO',
+      onAction: () {
+        SoundService.instance.play(SoundEvent.undo, settings: settings);
+        onUndo();
+      },
     );
   }
 
