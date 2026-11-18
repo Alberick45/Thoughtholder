@@ -9,6 +9,7 @@ import 'package:thought_holder_flutter/widgets/sticky_note_board.dart';
 import 'package:thought_holder_flutter/thought_provider.dart';
 import 'package:thought_holder_flutter/settings_service.dart';
 import 'package:thought_holder_flutter/sound_service.dart';
+import 'package:thought_holder_flutter/services/gamification_service.dart';
 
 class FakeThoughtProvider extends ThoughtProvider {
   final List<Map<String, dynamic>> _mockThoughts = [];
@@ -82,6 +83,7 @@ void main() {
           ChangeNotifierProvider<ThoughtProvider>.value(value: thoughtProvider),
           ChangeNotifierProvider<SettingsService>.value(value: settingsService),
           ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+          ChangeNotifierProvider<GamificationService>.value(value: GamificationService.instance),
         ],
         child: MaterialApp(
           home: Scaffold(
@@ -106,6 +108,7 @@ void main() {
           ChangeNotifierProvider<ThoughtProvider>.value(value: thoughtProvider),
           ChangeNotifierProvider<SettingsService>.value(value: settingsService),
           ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+          ChangeNotifierProvider<GamificationService>.value(value: GamificationService.instance),
         ],
         child: MaterialApp(
           home: Scaffold(
@@ -120,13 +123,12 @@ void main() {
     );
 
     await tester.pump();
-    expect(find.text('BRAIN DUMP • BOARD'), findsOneWidget);
-    expect(find.text('Sort'), findsOneWidget);
+    expect(find.text('BOARD'), findsOneWidget);
+    expect(find.byIcon(Icons.sort), findsWidgets);
     expect(find.textContaining('Sort: View all thoughts'), findsOneWidget);
-    expect(find.text('0 / 8 pinned'), findsOneWidget);
 
     // Tap top Sort button
-    await tester.tap(find.text('Sort'));
+    await tester.tap(find.byIcon(Icons.sort).first);
     await tester.pump();
     expect(sortedClicked, isTrue);
 
@@ -160,6 +162,7 @@ void main() {
           ChangeNotifierProvider<ThoughtProvider>.value(value: fakeProvider),
           ChangeNotifierProvider<SettingsService>.value(value: settingsService),
           ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+          ChangeNotifierProvider<GamificationService>.value(value: GamificationService.instance),
         ],
         child: MaterialApp(
           home: Scaffold(

@@ -411,52 +411,90 @@ class ThoughtBundleService {
   /// Maximum allowed bundle file size on disk (50 MB cap).
   static const int maxBundleFileSize = 50 * 1024 * 1024;
 
-  /// Validates bundle structure, field types, and lengths.
-  /// Throws FormatException if any untrusted or corrupted data is detected.
+  /// Validates bundle structure, field types, and normalizes fields.
   static void validateIncomingBundleData(UnpackedBundle bundle) {
+    final isStrictBundle = bundle.header['format_version'] != null && bundle.header['is_loose_json'] != true;
+
     for (final idea in bundle.ideas) {
-      final uuid = idea['uuid'];
-      if (uuid is! String || uuid.trim().isEmpty || uuid.length > 128) {
-        throw const FormatException('Malformed bundle: idea missing or invalid "uuid".');
-      }
-      final text = idea['text'];
-      if (text is! String || text.length > 1000000) {
-        throw const FormatException('Malformed bundle: idea missing or oversized "text".');
-      }
-      final title = idea['title'];
-      if (title != null && (title is! String || title.length > 500)) {
-        throw const FormatException('Malformed bundle: idea has invalid "title".');
-      }
-      final titleSource = idea['title_source'];
-      if (titleSource != null && (titleSource is! String || titleSource.length > 50)) {
-        throw const FormatException('Malformed bundle: idea has invalid "title_source".');
-      }
-      final status = idea['status'];
-      if (status != 'active' && status != 'done' && status != 'trash') {
-        throw const FormatException('Malformed bundle: idea has invalid "status".');
-      }
-      final createdAt = idea['created_at'];
-      if (createdAt is! int && (createdAt is! String || int.tryParse(createdAt) == null)) {
-        throw const FormatException('Malformed bundle: idea has invalid "created_at".');
-      }
-      final updatedAt = idea['updated_at'];
-      if (updatedAt != null && updatedAt is! String) {
-        throw const FormatException('Malformed bundle: idea has invalid "updated_at".');
+      if (isStrictBundle) {
+        final uuid = idea['uuid'];
+        if (uuid is! String || uuid.trim().isEmpty || uuid.length > 128) {
+          throw const FormatException('Malformed bundle: idea missing or invalid "uuid".');
+        }
+        final text = idea['text'];
+        if (text is! String || text.length > 1000000) {
+          throw const FormatException('Malformed bundle: idea missing or oversized "text".');
+        }
+        final title = idea['title'];
+        if (title != null && (title is! String || title.length > 500)) {
+          throw const FormatException('Malformed bundle: idea has invalid "title".');
+        }
+        final titleSource = idea['title_source'];
+        if (titleSource != null && (titleSource is! String || titleSource.length > 50)) {
+          throw const FormatException('Malformed bundle: idea has invalid "title_source".');
+        }
+        final status = idea['status'];
+        if (status != 'active' && status != 'done' && status != 'trash') {
+          throw const FormatException('Malformed bundle: idea has invalid "status".');
+        }
+        final createdAt = idea['created_at'];
+        if (createdAt is! int && (createdAt is! String || int.tryParse(createdAt.toString()) == null)) {
+          throw const FormatException('Malformed bundle: idea has invalid "created_at".');
+        }
+        final updatedAt = idea['updated_at'];
+        if (updatedAt != null && updatedAt is! String) {
+          throw const FormatException('Malformed bundle: idea has invalid "updated_at".');
+        }
+      } else {
+        // Loose JSON normalization
+        var uuid = idea['uuid'] ?? idea['id'] ?? idea['thought_id'];
+        if (uuid is! String || uuid.trim().isEmpty) {
+          uuid = 't-${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}';
+          idea['uuid'] = uuid;
+        } else {
+          idea['uuid'] = uuid.toString().trim();
+        }
+
+        var text = idea['text'] ?? idea['content'] ?? '';
+        if (text is! String) {
+          text = text.toString();
+        }
+        idea['text'] = text;
+
+        var title = idea['title'];
+        if (title == null || title is! String || title.trim().isEmpty) {
+          idea['title'] = text.length > 50 ? text.substring(0, 50).trim() : (text.isEmpty ? 'Untitled' : text);
+        }
+
+        var status = idea['status']?.toString().toLowerCase();
+        if (status != 'active' && status != 'done' && status != 'trash') {
+          final isDone = (idea['done'] as int? ?? 0) == 1;
+          final isTrashed = (idea['trashed'] as int? ?? 0) == 1;
+          if (isTrashed) {
+            status = 'trash';
+          } else if (isDone) {
+            status = 'done';
+          } else {
+            status = 'active';
+          }
+        }
+        idea['status'] = status;
+
+        final createdAt = idea['created_at'];
+        if (createdAt is! int && (createdAt is! String || int.tryParse(createdAt.toString()) == null)) {
+          idea['created_at'] = DateTime.now().millisecondsSinceEpoch;
+        }
       }
     }
 
     for (final bucket in bundle.buckets) {
       final name = bucket['name'];
-      if (name is! String || name.trim().isEmpty || name.length > 100) {
-        throw const FormatException('Malformed bundle: bucket missing or invalid "name".');
+      if (name is! String || name.trim().isEmpty) {
+        bucket['name'] = 'General';
       }
-      final uuid = bucket['uuid'];
-      if (uuid != null && (uuid is! String || uuid.length > 128)) {
-        throw const FormatException('Malformed bundle: bucket has invalid "uuid".');
-      }
-      final icon = bucket['icon'];
-      if (icon != null && (icon is! String || icon.length > 50)) {
-        throw const FormatException('Malformed bundle: bucket has invalid "icon".');
+      final uuid = bucket['uuid'] ?? bucket['id'];
+      if (uuid == null || uuid is! String) {
+        bucket['uuid'] = 'b-${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999)}';
       }
     }
   }
@@ -514,21 +552,48 @@ class ThoughtBundleService {
         if (name.isNotEmpty) existingBucketsByName[name] = b;
       }
 
-      // Analyze buckets
+      // Analyze buckets from both bundle.buckets AND referenced ideas
       final List<Map<String, dynamic>> bucketsToAdd = [];
       final List<Map<String, dynamic>> bucketsMatchedByName = [];
+      final Set<String> seenBucketNames = {};
 
       for (final incBucket in bundle.buckets) {
         final bUuid = incBucket['uuid']?.toString() ?? '';
-        final bName = (incBucket['name']?.toString() ?? '').toLowerCase().trim();
+        final rawName = incBucket['name']?.toString() ?? '';
+        final bName = rawName.toLowerCase().trim();
+        if (bName.isEmpty) continue;
+        seenBucketNames.add(bName);
 
         if (bUuid.isNotEmpty && existingBucketsByUuid.containsKey(bUuid)) {
           // Matched by uuid
           continue;
-        } else if (bName.isNotEmpty && existingBucketsByName.containsKey(bName)) {
+        } else if (existingBucketsByName.containsKey(bName)) {
           bucketsMatchedByName.add(incBucket);
         } else {
           bucketsToAdd.add(incBucket);
+        }
+      }
+
+      // Also scan ideas for bucket references (Requirement 3: restore buckets and thoughts in them)
+      for (final incIdea in bundle.ideas) {
+        final rawName = (incIdea['bucket_name'] ?? incIdea['bucket'])?.toString().trim() ?? '';
+        if (rawName.isEmpty) continue;
+        final bName = rawName.toLowerCase();
+
+        if (existingBucketsByName.containsKey(bName)) {
+          if (!seenBucketNames.contains(bName)) {
+            seenBucketNames.add(bName);
+            bucketsMatchedByName.add({'name': rawName, 'uuid': existingBucketsByName[bName]!['id']});
+          }
+        } else if (!seenBucketNames.contains(bName)) {
+          seenBucketNames.add(bName);
+          final bUuid = (incIdea['bucket_uuid'] ?? incIdea['bucket_id'])?.toString() ?? '';
+          bucketsToAdd.add({
+            'name': rawName,
+            'uuid': bUuid.isNotEmpty ? bUuid : 'b-${DateTime.now().millisecondsSinceEpoch}-${bucketsToAdd.length}',
+            'icon': 'folder',
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+          });
         }
       }
 
@@ -676,24 +741,65 @@ class ThoughtBundleService {
     }
 
     // 2. Apply in ONE single database transaction (atomic rollback on error)
+    int ideasInBucketsCount = 0;
+    final Set<String> distinctBucketsUsed = {};
+    int unsortedIdeasCount = 0;
+
     await database.transaction((txn) async {
-      // Step A: Insert buckets to add
+      // Step A: Insert buckets to add (avoid duplicate names)
       for (final b in analysis.bucketsToAdd) {
-        final bName = b['name']?.toString() ?? '';
+        final bName = b['name']?.toString().trim() ?? '';
+        if (bName.isEmpty) continue;
         final bUuid = b['uuid']?.toString() ?? '';
         final bIcon = b['icon']?.toString() ?? 'folder';
         final bCreatedAt = b['created_at'] is int
             ? b['created_at'] as int
             : (int.tryParse(b['created_at']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch);
 
-        await txn.insert('buckets', {
-          'name': bName,
-          'id': bUuid.isNotEmpty ? bUuid : 'b-${DateTime.now().millisecondsSinceEpoch}',
-          'icon': bIcon,
-          'created_at': bCreatedAt,
-          'revision': 1,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-        addedBucketsCount++;
+        final existing = await txn.query('buckets', where: 'LOWER(TRIM(name)) = ?', whereArgs: [bName.toLowerCase()]);
+        if (existing.isEmpty) {
+          await txn.insert('buckets', {
+            'name': bName,
+            'id': bUuid.isNotEmpty ? bUuid : 'b-${DateTime.now().millisecondsSinceEpoch}-${addedBucketsCount}',
+            'icon': bIcon,
+            'created_at': bCreatedAt,
+            'revision': 1,
+          });
+          addedBucketsCount++;
+        }
+      }
+
+      // Build active bucket lookup by lowercase name
+      final currentBucketRows = await txn.query('buckets');
+      final Map<String, Map<String, dynamic>> activeBucketsByName = {};
+      for (final b in currentBucketRows) {
+        final name = (b['name']?.toString() ?? '').toLowerCase().trim();
+        if (name.isNotEmpty) activeBucketsByName[name] = b;
+      }
+
+      // Helper to match bucket by name (Requirement 3: Never merge or duplicate buckets silently. Match existing buckets by name)
+      Map<String, String?> resolveBucket(Map<String, dynamic> idea) {
+        final rawName = (idea['bucket_name'] ?? idea['bucket'])?.toString().trim() ?? '';
+        if (rawName.isEmpty) {
+          unsortedIdeasCount++;
+          return {'name': null, 'id': null};
+        }
+
+        final lower = rawName.toLowerCase();
+        if (activeBucketsByName.containsKey(lower)) {
+          final matched = activeBucketsByName[lower]!;
+          ideasInBucketsCount++;
+          final actualName = matched['name']?.toString() ?? rawName;
+          distinctBucketsUsed.add(actualName);
+          return {'name': actualName, 'id': matched['id']?.toString()};
+        } else {
+          // New bucket not yet registered
+          final newId = (idea['bucket_uuid'] ?? idea['bucket_id'])?.toString() ?? 'b-${DateTime.now().millisecondsSinceEpoch}';
+          activeBucketsByName[lower] = {'id': newId, 'name': rawName};
+          ideasInBucketsCount++;
+          distinctBucketsUsed.add(rawName);
+          return {'name': rawName, 'id': newId};
+        }
       }
 
       // Step B: Insert new ideas
@@ -705,6 +811,8 @@ class ThoughtBundleService {
             ? idea['created_at'] as int
             : (int.tryParse(idea['created_at']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch);
 
+        final resolvedBucket = resolveBucket(idea);
+
         await txn.insert('thoughts', sanitizeThoughtRow({
           'id': idea['uuid']?.toString() ?? '',
           'thought_id': idea['uuid']?.toString() ?? '',
@@ -715,8 +823,8 @@ class ThoughtBundleService {
           'trashed': isTrashed,
           'title': idea['title']?.toString() ?? '',
           'title_source': idea['title_source']?.toString() ?? 'auto',
-          'bucket': idea['bucket_name']?.toString() ?? '',
-          'bucket_id': idea['bucket_uuid']?.toString() ?? '',
+          'bucket': resolvedBucket['name'],
+          'bucket_id': resolvedBucket['id'],
           'when_val': idea['when']?.toString() ?? 'Soon',
           'time_val': idea['time']?.toString() ?? 'Medium',
           'created_at': createdAt,
@@ -735,6 +843,7 @@ class ThoughtBundleService {
         final status = idea['status']?.toString().toLowerCase() ?? 'active';
         final isDone = status == 'done' ? 1 : 0;
         final isTrashed = status == 'trash' ? 1 : 0;
+        final resolvedBucket = resolveBucket(idea);
 
         await txn.update(
           'thoughts',
@@ -745,8 +854,8 @@ class ThoughtBundleService {
             'status': status,
             'done': isDone,
             'trashed': isTrashed,
-            'bucket': idea['bucket_name']?.toString() ?? '',
-            'bucket_id': idea['bucket_uuid']?.toString() ?? '',
+            'bucket': resolvedBucket['name'],
+            'bucket_id': resolvedBucket['id'],
             'when_val': idea['when']?.toString() ?? 'Soon',
             'time_val': idea['time']?.toString() ?? 'Medium',
             'updated_at': idea['updated_at']?.toString(),
@@ -803,6 +912,9 @@ class ThoughtBundleService {
       conflictCopiesCount: conflictCount,
       addedBucketsCount: addedBucketsCount,
       backupFilePath: backupMetadata.file.path,
+      ideasInBucketsCount: ideasInBucketsCount,
+      distinctBucketsCount: distinctBucketsUsed.length,
+      unsortedIdeasCount: unsortedIdeasCount,
     );
   }
 
@@ -894,6 +1006,9 @@ class ImportApplyResult {
   final int conflictCopiesCount;
   final int addedBucketsCount;
   final String backupFilePath;
+  final int ideasInBucketsCount;
+  final int distinctBucketsCount;
+  final int unsortedIdeasCount;
 
   const ImportApplyResult({
     required this.insertedIdeasCount,
@@ -901,7 +1016,21 @@ class ImportApplyResult {
     required this.conflictCopiesCount,
     required this.addedBucketsCount,
     required this.backupFilePath,
+    this.ideasInBucketsCount = 0,
+    this.distinctBucketsCount = 0,
+    this.unsortedIdeasCount = 0,
   });
+
+  String get summaryText {
+    final total = insertedIdeasCount + updatedIdeasCount;
+    if (ideasInBucketsCount > 0 && unsortedIdeasCount > 0) {
+      return 'Imported $total thoughts: $ideasInBucketsCount into $distinctBucketsCount bucket${distinctBucketsCount == 1 ? '' : 's'}, $unsortedIdeasCount to Unsorted.';
+    } else if (ideasInBucketsCount > 0) {
+      return 'Imported $total thoughts: $ideasInBucketsCount into $distinctBucketsCount bucket${distinctBucketsCount == 1 ? '' : 's'}.';
+    } else {
+      return 'Imported $total thoughts to Unsorted.';
+    }
+  }
 }
 
 class ExportResult {

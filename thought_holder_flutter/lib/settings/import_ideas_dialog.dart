@@ -27,9 +27,9 @@ class ImportIdeasFlow {
 
     try {
       final pickerResult = await FilePicker.pickFiles(
-        dialogTitle: 'Select .thoughtbundle file to import',
+        dialogTitle: 'Select .thoughtbundle or .json file to import',
         type: FileType.custom,
-        allowedExtensions: ['thoughtbundle'],
+        allowedExtensions: ['thoughtbundle', 'json'],
       );
 
       if (pickerResult == null || pickerResult.files.isEmpty) {
@@ -330,8 +330,8 @@ class ImportIdeasFlow {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Your ideas have been successfully imported:',
-              style: appFont(color: colors.text, fontSize: 14),
+              result.summaryText,
+              style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 12),
             _buildStatLine(Icons.add_circle_outline, '${result.insertedIdeasCount} new ideas added', colors.ok, colors),
@@ -339,7 +339,7 @@ class ImportIdeasFlow {
             if (result.conflictCopiesCount > 0)
               _buildStatLine(Icons.call_split_outlined, '${result.conflictCopiesCount} conflict copies created in Unsorted', colors.bad, colors),
             if (result.addedBucketsCount > 0)
-              _buildStatLine(Icons.folder_outlined, '${result.addedBucketsCount} new buckets added', colors.gold, colors),
+              _buildStatLine(Icons.folder_outlined, '${result.addedBucketsCount} new buckets restored', colors.gold, colors),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(10),

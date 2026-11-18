@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_theme.dart';
+import '../thought_provider.dart';
 import '../settings_service.dart';
 import '../google_drive_service.dart';
 import '../ble_sync_screen.dart';
@@ -452,7 +453,12 @@ class _DevicesGroupContentState extends State<DevicesGroupContent> {
           onTap: () {
             ImportIdeasFlow.startImport(
               context,
-              onImportCompleted: _checkLastImportBackup,
+              onImportCompleted: () {
+                _checkLastImportBackup();
+                try {
+                  context.read<ThoughtProvider>().loadAll();
+                } catch (_) {}
+              },
             );
           },
           child: Container(

@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows-blue)](https://github.com/Alberick45/Thoughtholder)
 [![Architecture](https://img.shields.io/badge/Architecture-Local--First%20%7C%20SQLite-003B57?logo=sqlite)](https://sqlite.org)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Offline%20%26%20Private-success)](#-privacy--local-first)
-[![License](https://img.shields.io/badge/Status-v1.0.0-gold)](#-downloads--installation)
+[![License](https://img.shields.io/badge/Status-v1.2.0-gold)](#-downloads--installation)
 
 ---
 
@@ -95,7 +95,7 @@ Thoughtholder is available as an Android APK and a Windows native desktop applic
 ### 📱 Android Installation
 
 1. **Download the APK**:
-   - [Download `app-release.apk` (v1.0.0)](https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/app-release.apk) *(~78 MB)*
+   - [Download `app-release.apk` (v1.2.0)](https://github.com/Alberick45/Thoughtholder/releases/download/v1%2C2.0/app-release.apk) *(~78 MB)*
 2. **Install**:
    - Open the downloaded `.apk` file on your phone.
    - If Android prompts you, tap **Settings** and allow *Install unknown apps* for your browser or file manager.
@@ -107,8 +107,9 @@ Thoughtholder is available as an Android APK and a Windows native desktop applic
 
 ### 💻 Windows Desktop Installation
 
-1. **Download the Windows Executable**:
-   - [Download `thoughtholder-1.0.0-windows-x64.exe` (v1.0.0)](https://github.com/Alberick45/Thoughtholder/releases/download/v1.0.0/thoughtholder-1.0.0-windows-x64.exe)
+1. **Download the Windows Release Bundle**:
+   - [Download `thoughtholder-1.2.0-windows-x64.zip` (v1.2.0)](https://github.com/Alberick45/Thoughtholder/releases/download/v1%2C2.0/thoughtholder-1.2.0-windows-x64.zip)
+   - Extract the `.zip` archive and run `thought_holder_flutter.exe`.
 2. **Launch & Shortcut Options**:
    - **Desktop Shortcut**: Launch via the **Thoughtholder** icon on your Desktop.
    - **Start Menu**: Search for `ThoughtHolder` in your Windows Start Menu.

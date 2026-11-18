@@ -16,6 +16,7 @@ import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
 import 'widgets/keyboard_safe_sheet.dart';
 import 'widgets/sticky_note_board.dart';
+import 'widgets/suggest_buckets_sheet.dart';
 import 'widgets/swipe_tabs.dart';
 import 'background_recording_service.dart';
 import 'utils/app_toast.dart';
@@ -835,20 +836,34 @@ class _StreamScreenState extends State<StreamScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Help line: "Idea 1 of Y. Pick a bucket for it." (Reserved fixed height: 32px)
-          SizedBox(
-            height: 32,
-            child: Center(
-              child: Text(
-                'Idea 1 of $totalCount. Pick a bucket for it.',
-                textAlign: TextAlign.center,
+          // Help line & "Suggest buckets" button (Requirement 4)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Idea 1 of $totalCount in Unsorted',
                 style: appFont(
                   color: colors.gold,
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E222B),
+                  foregroundColor: const Color(0xFFFFD54F),
+                  side: const BorderSide(color: Color(0xFFFFD54F)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.auto_awesome, size: 14),
+                label: Text(
+                  'Suggest buckets',
+                  style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                onPressed: () => SuggestBucketsSheet.show(context),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
 
@@ -3904,39 +3919,7 @@ class _StreamScreenState extends State<StreamScreen> {
             ),
             const Divider(height: 12),
 
-            // 1. Mark done / Mark active
-            buildMenuItem(
-              icon: idea['done'] == 1 ? Icons.undo : Icons.check_circle_outline,
-              iconColor: colors.gold,
-              textColor: colors.gold,
-              label: idea['done'] == 1 ? 'Mark as active' : 'Mark done',
-              onTap: () async {
-                Navigator.pop(ctx);
-                final markDone = idea['done'] != 1;
-                await provider.markDone(idea['id'], markDone);
-                SoundService.instance.play(SoundEvent.save, settings: settings);
-                _showUndoSnackBar(
-                  markDone ? 'Marked "$ideaName" as done' : 'Marked "$ideaName" as active',
-                  () {
-                    provider.markDone(idea['id'], !markDone);
-                  },
-                );
-              },
-            ),
-
-            // 2. Split into smaller tasks (Requirement 4)
-            buildMenuItem(
-              icon: Icons.splitscreen,
-              iconColor: colors.gold,
-              textColor: colors.gold,
-              label: 'Split into smaller tasks',
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSplitIdeaDialog(context, provider, idea, colors);
-              },
-            ),
-
-            // 3. Pin to board / Remove from board (Requirement 5 & 6)
+            // Top item: Pin to board / Remove from board (Requirement 2: "Pin to board" at the top)
             Builder(
               builder: (context) {
                 final isPinned = provider.isPinned(idea);
@@ -4010,6 +3993,38 @@ class _StreamScreenState extends State<StreamScreen> {
                     },
                   );
                 }
+              },
+            ),
+
+            // 2. Mark done / Mark active
+            buildMenuItem(
+              icon: idea['done'] == 1 ? Icons.undo : Icons.check_circle_outline,
+              iconColor: colors.gold,
+              textColor: colors.gold,
+              label: idea['done'] == 1 ? 'Mark as active' : 'Mark done',
+              onTap: () async {
+                Navigator.pop(ctx);
+                final markDone = idea['done'] != 1;
+                await provider.markDone(idea['id'], markDone);
+                SoundService.instance.play(SoundEvent.save, settings: settings);
+                _showUndoSnackBar(
+                  markDone ? 'Marked "$ideaName" as done' : 'Marked "$ideaName" as active',
+                  () {
+                    provider.markDone(idea['id'], !markDone);
+                  },
+                );
+              },
+            ),
+
+            // 3. Split into smaller tasks
+            buildMenuItem(
+              icon: Icons.splitscreen,
+              iconColor: colors.gold,
+              textColor: colors.gold,
+              label: 'Split into smaller tasks',
+              onTap: () {
+                Navigator.pop(ctx);
+                _showSplitIdeaDialog(context, provider, idea, colors);
               },
             ),
 
@@ -5567,17 +5582,20 @@ class FixedIdeaCard extends StatelessWidget {
         IdeaFormatters.getCaptureIcon(idea['audio_path'] ?? idea['type']);
     final content = idea['content'] as String? ?? '';
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isFirst ? colors.gold : colors.line,
-          width: isFirst ? 1.6 : 1.2,
+    return GestureDetector(
+      onLongPress: onMoreOptions,
+      onSecondaryTap: onMoreOptions,
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isFirst ? colors.gold : colors.line,
+            width: isFirst ? 1.6 : 1.2,
+          ),
         ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: LayoutBuilder(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: LayoutBuilder(
         builder: (context, constraints) {
           final isCut = _isCut(content, constraints.maxWidth);
 
@@ -5711,8 +5729,9 @@ class FixedIdeaCard extends StatelessWidget {
           );
         },
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 // ============================================================================

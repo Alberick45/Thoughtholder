@@ -2,10 +2,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_theme.dart';
+import '../services/gamification_service.dart';
 import '../settings_service.dart';
 import '../sound_service.dart';
 import '../thought_provider.dart';
-import '../settings_modal.dart';
 import '../utils/title_generator.dart';
 import '../utils/app_toast.dart';
 
@@ -53,6 +53,8 @@ class StickyNoteBoard extends StatefulWidget {
 class _StickyNoteBoardState extends State<StickyNoteBoard> {
   String? _selectedThoughtId;
   int _lastSecondaryTapTime = 0;
+  String? _peelingThoughtId;
+  int? _lastFreedSlotIndex;
 
   Color _getNoteColor(int index) {
     return kStickyNoteColors[index % kStickyNoteColors.length];
@@ -300,10 +302,20 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
 
     switch (selected) {
       case 'done':
-        await provider.markDone(id, true);
+        setState(() => _peelingThoughtId = id);
+        await Future.delayed(const Duration(milliseconds: 260));
+        final xp = await provider.markDone(id, true);
         SoundService.instance.play(SoundEvent.save, settings: settings);
         if (mounted) {
-          AppToast.show(context, message: 'Marked "$title" as done');
+          final summary = GamificationService.instance.getSummaryString();
+          AppToast.show(
+            context,
+            message: xp > 0 ? 'Marked done! +$xp XP ($summary)' : 'Marked "$title" as done',
+          );
+          setState(() {
+            _peelingThoughtId = null;
+            _lastFreedSlotIndex = 0;
+          });
         }
         break;
       case 'split':
@@ -451,11 +463,337 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     );
   }
 
+  Widget _buildAddMenuOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      enabled: enabled,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: enabled ? const Color(0xFFFFD54F).withValues(alpha: 0.12) : const Color(0xFF262C38),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(
+          icon,
+          color: enabled ? const Color(0xFFFFD54F) : Colors.grey,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        title,
+        style: appFont(
+          color: enabled ? Colors.white : Colors.grey,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: appFont(
+          color: enabled ? const Color(0xFF9CA3AF) : const Color(0xFF4B5563),
+          fontSize: 12,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: enabled ? const Color(0xFF9CA3AF) : const Color(0xFF4B5563),
+        size: 18,
+      ),
+      onTap: enabled ? onTap : null,
+    );
+  }
+
+  /// Add menu bottom sheet for phone (Requirement 2)
+  void _showAddBoardBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E222B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFF333B48)),
+      ),
+      builder: (ctx) {
+        final provider = context.watch<ThoughtProvider>();
+        final isFull = provider.isBoardFull;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4B5563),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'ADD TO BOARD',
+                        style: appFont(
+                          color: const Color(0xFFFFD54F),
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        '${provider.pinnedCount}/8 pinned',
+                        style: appFont(
+                          color: isFull ? Colors.amberAccent : const Color(0xFF9CA3AF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Divider(color: Color(0xFF333B48), height: 1),
+                const SizedBox(height: 6),
+                _buildAddMenuOption(
+                  icon: Icons.note_add_outlined,
+                  title: 'New sticky note',
+                  subtitle: isFull ? 'Board is full (8/8). Swap a note to add' : 'Create a fresh thought on the board',
+                  enabled: !isFull,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showCreateStickyNoteDialog(context);
+                  },
+                ),
+                _buildAddMenuOption(
+                  icon: Icons.sort,
+                  title: 'Pin from Sorted',
+                  subtitle: 'Pick from your organized ideas',
+                  enabled: true,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showPinListPicker(context, isSorted: true);
+                  },
+                ),
+                _buildAddMenuOption(
+                  icon: Icons.inbox_outlined,
+                  title: 'Pin from Unsorted',
+                  subtitle: '${provider.unsortedCount} thoughts in inbox',
+                  enabled: true,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showPinListPicker(context, isSorted: false);
+                  },
+                ),
+                _buildAddMenuOption(
+                  icon: Icons.folder_open_outlined,
+                  title: "Pin a bucket's top task",
+                  subtitle: 'Select from ${provider.buckets.length} buckets',
+                  enabled: true,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showPinBucketTopTaskPicker(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showPinListPicker(BuildContext context, {required bool isSorted}) {
     final provider = context.read<ThoughtProvider>();
-    final thoughts = isSorted
-        ? provider.sortedThoughts.where((t) => !provider.isPinned(t)).toList()
-        : provider.unsortedThoughts.where((t) => !provider.isPinned(t)).toList();
+    final searchCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final isFull = provider.isBoardFull;
+          final allThoughts = isSorted
+              ? provider.sortedThoughts.where((t) => !provider.isPinned(t)).toList()
+              : provider.unsortedThoughts.where((t) => !provider.isPinned(t)).toList();
+
+          final query = searchCtrl.text.trim().toLowerCase();
+          final filtered = query.isEmpty
+              ? allThoughts
+              : allThoughts.where((t) {
+                  final title = (t['title'] as String? ?? '').toLowerCase();
+                  final content = (t['content'] as String? ?? '').toLowerCase();
+                  final bucket = (t['bucket'] as String? ?? '').toLowerCase();
+                  return title.contains(query) || content.contains(query) || bucket.contains(query);
+                }).toList();
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E222B),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFF333B48)),
+            ),
+            title: Text(
+              isSorted ? 'Pin from Sorted' : 'Pin from Unsorted',
+              style: appFont(
+                color: const Color(0xFFFFD54F),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+            content: SizedBox(
+              width: 460,
+              height: 440,
+              child: Column(
+                children: [
+                  // Search Bar
+                  TextField(
+                    controller: searchCtrl,
+                    onChanged: (_) => setDialogState(() {}),
+                    style: appFont(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search ideas...',
+                      hintStyle: appFont(color: Colors.grey, fontSize: 13),
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFFFFD54F), size: 18),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      filled: true,
+                      fillColor: const Color(0xFF13151D),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFF333B48)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Board Full Warning & Swap explanation
+                  if (isFull)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Color(0xFFFFD54F), size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Board is full (8/8). Tap "Swap" to replace a note on the board.',
+                              style: appFont(color: const Color(0xFFFFD54F), fontSize: 11),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Thoughts list
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Text(
+                              query.isEmpty ? 'No available thoughts to pin' : 'No matching thoughts found',
+                              style: appFont(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) => const Divider(color: Color(0xFF333B48), height: 1),
+                            itemBuilder: (context, index) {
+                              final t = filtered[index];
+                              final title = (t['title'] as String?)?.isNotEmpty == true
+                                  ? t['title'] as String
+                                  : (t['content'] as String? ?? 'Untitled');
+                              final bucket = t['bucket'] as String? ?? 'Unsorted';
+
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                title: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: appFont(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  bucket,
+                                  style: appFont(color: Colors.grey, fontSize: 11),
+                                ),
+                                trailing: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isFull ? const Color(0xFF262C38) : const Color(0xFFFFD54F),
+                                    foregroundColor: isFull ? const Color(0xFFFFD54F) : Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      side: isFull ? const BorderSide(color: Color(0xFFFFD54F)) : BorderSide.none,
+                                    ),
+                                  ),
+                                  onPressed: () async {
+                                    if (isFull) {
+                                      Navigator.pop(ctx);
+                                      _showSwapDialog(context, t);
+                                    } else {
+                                      Navigator.pop(ctx);
+                                      final ok = await provider.pinToBoard(t['id']);
+                                      if (ok && mounted) {
+                                        AppToast.show(context, message: 'Pinned "$title" to board');
+                                      }
+                                    }
+                                  },
+                                  child: Text(
+                                    isFull ? 'Swap' : 'Pin',
+                                    style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Close', style: appFont(color: Colors.grey)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Swap candidate thought with an existing board note when board is full (Requirement 2)
+  void _showSwapDialog(BuildContext context, Map<String, dynamic> candidateThought) {
+    final provider = context.read<ThoughtProvider>();
+    final candidateTitle = (candidateThought['title'] as String?)?.isNotEmpty == true
+        ? candidateThought['title'] as String
+        : (candidateThought['content'] as String? ?? 'Untitled');
 
     showDialog(
       context: context,
@@ -466,7 +804,85 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           side: const BorderSide(color: Color(0xFF333B48)),
         ),
         title: Text(
-          isSorted ? 'Pin from Sorted' : 'Pin from Unsorted',
+          'Swap with a board note',
+          style: appFont(
+            color: const Color(0xFFFFD54F),
+            fontWeight: FontWeight.bold,
+            fontSize: 17,
+          ),
+        ),
+        content: SizedBox(
+          width: 440,
+          height: 360,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select which pinned note to replace with "$candidateTitle":',
+                style: appFont(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: provider.pinnedThoughts.length,
+                  separatorBuilder: (_, _) => const Divider(color: Color(0xFF333B48), height: 1),
+                  itemBuilder: (context, i) {
+                    final note = provider.pinnedThoughts[i];
+                    final noteTitle = (note['title'] as String?)?.isNotEmpty == true
+                        ? note['title'] as String
+                        : (note['content'] as String? ?? 'Untitled');
+                    final noteBucket = note['bucket'] as String? ?? 'Unsorted';
+
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(Icons.push_pin, color: _getNoteColor(i), size: 18),
+                      title: Text(
+                        noteTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: appFont(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      subtitle: Text(noteBucket, style: appFont(color: Colors.grey, fontSize: 11)),
+                      trailing: const Icon(Icons.swap_horiz, color: Color(0xFFFFD54F)),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await provider.unpinFromBoard(note['id']);
+                        await provider.pinToBoard(candidateThought['id'], position: i);
+                        if (mounted) {
+                          AppToast.show(context, message: 'Swapped "$noteTitle" with "$candidateTitle" on board');
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: appFont(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pin a bucket's top task (Requirement 2)
+  void _showPinBucketTopTaskPicker(BuildContext context) {
+    final provider = context.read<ThoughtProvider>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E222B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF333B48)),
+        ),
+        title: Text(
+          "Pin a bucket's top task",
           style: appFont(
             color: const Color(0xFFFFD54F),
             fontWeight: FontWeight.bold,
@@ -476,56 +892,71 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         content: SizedBox(
           width: 440,
           height: 380,
-          child: thoughts.isEmpty
+          child: provider.buckets.isEmpty
               ? Center(
                   child: Text(
-                    'No available thoughts to pin',
+                    'No buckets created yet',
                     style: appFont(color: Colors.grey),
                   ),
                 )
               : ListView.separated(
-                  itemCount: thoughts.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(color: Color(0xFF333B48), height: 1),
-                  itemBuilder: (context, index) {
-                    final t = thoughts[index];
-                    final title = (t['title'] as String?)?.isNotEmpty == true
-                        ? t['title'] as String
-                        : (t['content'] as String? ?? 'Untitled');
-                    final bucket = t['bucket'] as String? ?? 'Unsorted';
+                  itemCount: provider.buckets.length,
+                  separatorBuilder: (_, _) => const Divider(color: Color(0xFF333B48), height: 1),
+                  itemBuilder: (context, i) {
+                    final b = provider.buckets[i];
+                    final bName = b['name'] as String;
+                    final bucketThoughts = provider.getThoughtsForBucket(bName);
+                    final topUnpinned = bucketThoughts.where((t) => !provider.isPinned(t)).toList();
+                    final topTask = topUnpinned.isNotEmpty ? topUnpinned.first : null;
+                    final topTitle = topTask != null
+                        ? ((topTask['title'] as String?)?.isNotEmpty == true
+                            ? topTask['title'] as String
+                            : (topTask['content'] as String? ?? 'Untitled'))
+                        : 'No unpinned tasks';
+
+                    final isFull = provider.isBoardFull;
 
                     return ListTile(
                       dense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(Icons.folder_outlined, color: Color(0xFFFFD54F), size: 20),
                       title: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: appFont(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        bName,
+                        style: appFont(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                       ),
                       subtitle: Text(
-                        bucket,
-                        style: appFont(color: Colors.grey, fontSize: 12),
+                        'Top task: $topTitle',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: appFont(color: topTask != null ? const Color(0xFF9CA3AF) : Colors.grey, fontSize: 11),
                       ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.push_pin_outlined,
-                            color: Color(0xFFFFD54F), size: 20),
-                        tooltip: 'Pin to board',
-                        onPressed: () async {
-                          Navigator.pop(ctx);
-                          final ok = await provider.pinToBoard(t['id']);
-                          if (!ok && mounted) {
-                            AppToast.show(
-                              context,
-                              message:
-                                  'Board is full (8/8). Remove a note from the board first.',
-                            );
-                          }
-                        },
-                      ),
+                      trailing: topTask == null
+                          ? null
+                          : ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isFull ? const Color(0xFF262C38) : const Color(0xFFFFD54F),
+                                foregroundColor: isFull ? const Color(0xFFFFD54F) : Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: isFull ? const BorderSide(color: Color(0xFFFFD54F)) : BorderSide.none,
+                                ),
+                              ),
+                              onPressed: () async {
+                                Navigator.pop(ctx);
+                                if (isFull) {
+                                  _showSwapDialog(context, topTask);
+                                } else {
+                                  final ok = await provider.pinToBoard(topTask['id']);
+                                  if (ok && mounted) {
+                                    AppToast.show(context, message: 'Pinned "$topTitle" from $bName');
+                                  }
+                                }
+                              },
+                              child: Text(
+                                isFull ? 'Swap' : 'Pin',
+                                style: appFont(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
                     );
                   },
                 ),
@@ -537,6 +968,283 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Profile and Daily Goal modal sheet (Requirement 5)
+  void _showDailyGoalProfileSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E222B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFF333B48)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final gamification = context.watch<GamificationService>();
+          final done = gamification.todayCompletedCount;
+          final goal = gamification.currentGoal;
+          final progress = (done / math.max(goal, 1)).clamp(0.0, 1.0);
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4B5563),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Header with Level & Streak
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD54F),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'LEVEL ${gamification.level}',
+                              style: appFont(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            '${gamification.totalXp} XP',
+                            style: appFont(
+                              color: const Color(0xFFFFD54F),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF13151D),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF333B48)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text('🔥 ', style: TextStyle(fontSize: 13)),
+                            Text(
+                              '${gamification.streak} day streak',
+                              style: appFont(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Level Progress Bar
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Level progress',
+                            style: appFont(color: const Color(0xFF9CA3AF), fontSize: 12),
+                          ),
+                          Text(
+                            '${gamification.currentLevelXp} / ${gamification.nextLevelTargetXp} XP',
+                            style: appFont(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: gamification.levelProgress,
+                          minHeight: 8,
+                          backgroundColor: const Color(0xFF13151D),
+                          color: const Color(0xFFFFD54F),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Today's Goal Ring & Status Card
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF13151D),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF333B48)),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                value: progress,
+                                strokeWidth: 5,
+                                backgroundColor: const Color(0xFF262C38),
+                                color: const Color(0xFFFFD54F),
+                              ),
+                              Text(
+                                '$done/$goal',
+                                style: appFont(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                gamification.isDailyGoalReached
+                                    ? 'Daily goal reached! 🎉 (+10 Bonus XP)'
+                                    : 'Daily goal: finish $goal pinned tasks',
+                                style: appFont(
+                                  color: gamification.isDailyGoalReached ? const Color(0xFFFFD54F) : Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Only tasks marked done from pinned board notes count.',
+                                style: appFont(color: const Color(0xFF9CA3AF), fontSize: 11),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '1 rest day per week protects your streak.',
+                                style: appFont(color: const Color(0xFF6B7280), fontSize: 10),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Effort Rewards Guide
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF13151D),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _xpGuidePill('Quick', '+5 XP'),
+                        _xpGuidePill('Medium', '+10 XP'),
+                        _xpGuidePill('Big', '+20 XP'),
+                        _xpGuidePill('Goal bonus', '+10 XP'),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Goal Settings (Lower or Fix Goal)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Daily goal target',
+                            style: appFont(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          Text(
+                            gamification.isGoalFixed ? 'Fixed goal' : 'Auto-increases every 5-day streak',
+                            style: appFont(color: const Color(0xFF9CA3AF), fontSize: 11),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFFFD54F), size: 22),
+                            onPressed: goal > 4
+                                ? () => gamification.setGoalSettings(
+                                      isFixed: true,
+                                      goalValue: goal - 1,
+                                    )
+                                : null,
+                          ),
+                          Text(
+                            '$goal',
+                            style: appFont(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, color: Color(0xFFFFD54F), size: 22),
+                            onPressed: goal < 8
+                                ? () => gamification.setGoalSettings(
+                                      isFixed: true,
+                                      goalValue: goal + 1,
+                                    )
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _xpGuidePill(String label, String xp) {
+    return Column(
+      children: [
+        Text(xp, style: appFont(color: const Color(0xFFFFD54F), fontWeight: FontWeight.bold, fontSize: 12)),
+        const SizedBox(height: 2),
+        Text(label, style: appFont(color: const Color(0xFF9CA3AF), fontSize: 10)),
+      ],
     );
   }
 
@@ -787,6 +1495,66 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     );
   }
 
+  Widget _buildDailyGoalRing(BuildContext context) {
+    final gamification = context.watch<GamificationService>();
+    final done = gamification.todayCompletedCount;
+    final goal = gamification.currentGoal;
+    final progress = (done / math.max(goal, 1)).clamp(0.0, 1.0);
+
+    return InkWell(
+      onTap: () => _showDailyGoalProfileSheet(context),
+      borderRadius: BorderRadius.circular(20),
+      child: Tooltip(
+        message: 'Daily Goal: $done/$goal completed. Tap for profile & XP',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E222B),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: gamification.isDailyGoalReached
+                  ? const Color(0xFFFFD54F)
+                  : const Color(0xFF333B48),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 2.5,
+                      backgroundColor: const Color(0xFF333B48),
+                      color: const Color(0xFFFFD54F),
+                    ),
+                    if (gamification.isDailyGoalReached)
+                      const Icon(Icons.check, size: 12, color: Color(0xFFFFD54F)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$done/$goal',
+                style: appFont(
+                  color: gamification.isDailyGoalReached
+                      ? const Color(0xFFFFD54F)
+                      : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ThoughtProvider>();
@@ -943,91 +1711,38 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Bar: Prominent Sort button on left, Title center, Pinned count + Settings right (matching Image 2)
+            // Top Bar: [Sort icon only] [BOARD] [daily-goal ring "2/4"] on ONE row (Requirement 1)
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top-Left: "≡ Sort" button matching Image 2
+                // Left: Sort icon only
                 InkWell(
                   onTap: widget.onOpenSorted,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: const Color(0xFF1E222B),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFF333B48), width: 1.5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF333B48), width: 1.2),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.menu, size: 16, color: Colors.white),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Sort',
-                          style: appFont(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: const Icon(Icons.sort, size: 20, color: Colors.white),
                   ),
                 ),
 
-                const Spacer(),
-
-                // Center Title: BRAIN DUMP • BOARD
+                // Center Title: BOARD only
                 Text(
-                  'BRAIN DUMP • BOARD',
+                  'BOARD',
                   style: appFont(
                     color: const Color(0xFFFFD54F),
                     fontWeight: FontWeight.w900,
                     letterSpacing: 2.2,
-                    fontSize: 15,
+                    fontSize: 16,
                   ),
                 ),
 
-                const Spacer(),
-
-                // Pinned badge (e.g. 7 / 8 pinned)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E222B),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFFFD54F).withValues(alpha: 0.6),
-                    ),
-                  ),
-                  child: Text(
-                    '$pinnedCount / 8 pinned',
-                    style: appFont(
-                      color: const Color(0xFFFFD54F),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(
-                    Icons.wb_sunny_outlined,
-                    color: Color(0xFFFFD54F),
-                    size: 20,
-                  ),
-                  tooltip: 'Settings: connect Groq',
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const SettingsModal(),
-                    );
-                  },
-                ),
+                // Right: Daily-goal ring showing progress (e.g. "2/4")
+                _buildDailyGoalRing(context),
               ],
             ),
 
@@ -1076,122 +1791,152 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                             }
                           },
                           builder: (context, candidateData, rejectedData) {
-                            return LongPressDraggable<int>(
-                              data: slotIndex,
-                              feedback: Material(
-                                color: Colors.transparent,
-                                child: SizedBox(
-                                  width: cellWidth,
-                                  height: cellHeight,
-                                  child: Opacity(
-                                    opacity: 0.85,
-                                    child: Transform.rotate(
-                                      angle: rotationAngle,
-                                      alignment: Alignment.topCenter,
-                                      child: _buildStickyNoteCard(
-                                        thought: thought,
-                                        color: color,
-                                        isSelected: false,
-                                        cellWidth: cellWidth,
-                                        cellHeight: cellHeight,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              childWhenDragging: Opacity(
-                                opacity: 0.3,
-                                child: Transform.rotate(
-                                  angle: rotationAngle,
-                                  alignment: Alignment.topCenter,
-                                  child: _buildStickyNoteCard(
-                                    thought: thought,
-                                    color: color,
-                                    isSelected: false,
-                                    cellWidth: cellWidth,
-                                    cellHeight: cellHeight,
-                                  ),
-                                ),
-                              ),
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                alignment: Alignment.topCenter,
-                                child: GestureDetector(
-                                  onTap: () {
-                                    _showStickyNoteDetailPopup(
-                                        context, thought, color);
-                                  },
-                                  onSecondaryTapDown: (details) =>
-                                      _showNoteContextMenu(
-                                          context, details.globalPosition, thought,
-                                          color: color),
-                                  child: _buildStickyNoteCard(
-                                    thought: thought,
-                                    color: color,
-                                    isSelected: isSelected,
-                                    cellWidth: cellWidth,
-                                    cellHeight: cellHeight,
-                                  ),
+                            return Transform.rotate(
+                              angle: rotationAngle,
+                              alignment: Alignment.topCenter,
+                              child: GestureDetector(
+                                onTap: () {
+                                  _showStickyNoteDetailPopup(
+                                      context, thought, color);
+                                },
+                                onLongPress: () {
+                                  _showAddBoardBottomSheet(context);
+                                },
+                                onSecondaryTapDown: (details) =>
+                                    _showNoteContextMenu(
+                                        context, details.globalPosition, thought,
+                                        color: color),
+                                child: _buildStickyNoteCard(
+                                  thought: thought,
+                                  color: color,
+                                  isSelected: isSelected,
+                                  cellWidth: cellWidth,
+                                  cellHeight: cellHeight,
+                                  slotIndex: slotIndex,
+                                  rotationAngle: rotationAngle,
                                 ),
                               ),
                             );
                           },
                         );
                       } else {
-                        // Empty Slot (Dashed outline)
-                        final slotsLeft = 8 - pinnedCount;
-                        return GestureDetector(
-                          onTap: () => _showCreateStickyNoteDialog(context),
-                          onSecondaryTapDown: (details) =>
-                              _onBoardSecondaryTapDown(context, details),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFF262C38),
-                                width: 1.5,
-                                style: BorderStyle.solid,
+                        // Empty Slots (Requirement 1: Show ONE empty "+" slot with no text, other slots are faint outlines)
+                        final isSingleAddSlot = slotIndex == pinnedCount;
+
+                        // Check if we should suggest next best task from Sorted to pin into an emptied slot (Requirement 5)
+                        final nextBest = (_lastFreedSlotIndex != null && isSingleAddSlot)
+                            ? provider.bestNextUnpinnedThought
+                            : null;
+
+                        if (nextBest != null) {
+                          final nextTitle = (nextBest['title'] as String?)?.isNotEmpty == true
+                              ? nextBest['title'] as String
+                              : (nextBest['content'] as String? ?? 'Next idea');
+
+                          return GestureDetector(
+                            onTap: () async {
+                              final ok = await provider.pinToBoard(nextBest['id'], position: slotIndex);
+                              if (ok && mounted) {
+                                AppToast.show(context, message: 'Pinned "$nextTitle"');
+                                setState(() => _lastFreedSlotIndex = null);
+                              }
+                            },
+                            onSecondaryTapDown: (details) =>
+                                _onBoardSecondaryTapDown(context, details),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF161A23),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFFFFD54F).withValues(alpha: 0.5),
+                                  width: 1.5,
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.auto_awesome, color: Color(0xFFFFD54F), size: 18),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Pin next best:',
+                                    style: appFont(color: const Color(0xFFFFD54F), fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    nextTitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: appFont(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.add,
-                                        size: 22, color: Color(0xFF4B5563)),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '$slotsLeft slot${slotsLeft == 1 ? '' : 's'} left',
-                                      style: appFont(
-                                        color: const Color(0xFF9CA3AF),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'right-click anywhere to add',
-                                      textAlign: TextAlign.center,
-                                      style: appFont(
-                                        color: const Color(0xFF4B5563),
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ],
+                          );
+                        }
+
+                        if (isSingleAddSlot) {
+                          // The ONE empty "+" slot (no text!)
+                          return GestureDetector(
+                            onTap: () => _showAddBoardBottomSheet(context),
+                            onLongPress: () => _showAddBoardBottomSheet(context),
+                            onSecondaryTapDown: (details) =>
+                                _onBoardSecondaryTapDown(context, details),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF161A23),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFF333B48),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.add, size: 26, color: Color(0xFF6B7280)),
+                              ),
+                            ),
+                          );
+                        } else {
+                          // Other empty slots are just faint outlines (Requirement 1)
+                          return GestureDetector(
+                            onTap: () => _showAddBoardBottomSheet(context),
+                            onLongPress: () => _showAddBoardBottomSheet(context),
+                            onSecondaryTapDown: (details) =>
+                                _onBoardSecondaryTapDown(context, details),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFF1E222B),
+                                  width: 1.2,
                                 ),
                               ),
                             ),
-                          ),
-                        );
+                          );
+                        }
                       }
                     },
                   );
                 },
               ),
             ),
+
+            // Show pinned count as small text under the board ONLY if the board is full (Requirement 1)
+            if (pinnedCount >= 8) ...[
+              const SizedBox(height: 6),
+              Center(
+                child: Text(
+                  'Board is full (8/8). Remove a note from the board first to add more.',
+                  style: appFont(
+                    color: const Color(0xFF9CA3AF),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 8),
 
@@ -1237,6 +1982,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     required bool isSelected,
     required double cellWidth,
     required double cellHeight,
+    int? slotIndex,
+    double? rotationAngle,
   }) {
     final title = (thought['title'] as String?)?.isNotEmpty == true
         ? thought['title'] as String
@@ -1246,126 +1993,149 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     final whenVal = thought['when_val'] as String? ?? '';
     final timeVal = thought['time_val'] as String? ?? '';
 
-    String tagLabel = '';
-    if (whenVal.isNotEmpty && whenVal != 'Soon') {
-      tagLabel = 'due $whenVal'.toLowerCase();
-    } else if (timeVal.isNotEmpty) {
-      tagLabel = timeVal.toLowerCase();
-    } else {
-      tagLabel = 'quick';
-    }
+    // Show effort only if NOT medium (Requirement 1)
+    final timeLower = timeVal.toLowerCase().trim();
+    final String? showEffort = (timeLower == 'quick' || timeLower == 'big' || timeLower == 'long') ? timeLower : null;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // Main Note Body with Curved Post-it paper effect
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomRight,
-              colors: [
-                color,
-                Color.lerp(color, Colors.white, 0.12)!,
-              ],
-              stops: const [0.72, 1.0],
-            ),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(4),
-              topRight: Radius.circular(4),
-              bottomLeft: Radius.circular(14),
-              bottomRight: Radius.circular(22), // Natural curved paper lift
-            ),
-            boxShadow: [
-              // Curled paper lift shadow at bottom-right
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isSelected ? 0.42 : 0.28),
-                blurRadius: isSelected ? 16 : 10,
-                offset: const Offset(4, 7),
-              ),
-              // Ambient soft contact shadow
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.fromLTRB(14, 18, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Title (bold dark text)
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: appFont(
-                  color: const Color(0xFF0F172A),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
+    // Show due-soon as a small red/amber dot (Requirement 1)
+    final bool isDueSoon = whenVal.isNotEmpty && whenVal != 'Later' && whenVal != 'Soon';
+
+    final isPeeling = thought['id'] == _peelingThoughtId;
+
+    return AnimatedScale(
+      scale: isPeeling ? 0.75 : 1.0,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeInOut,
+      child: AnimatedOpacity(
+        opacity: isPeeling ? 0.0 : 1.0,
+        duration: const Duration(milliseconds: 260),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // Main Note Body with Curved Post-it paper effect (less padding: 10, 14, 10, 8)
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color,
+                    Color.lerp(color, Colors.white, 0.12)!,
+                  ],
+                  stops: const [0.72, 1.0],
                 ),
-              ),
-              const SizedBox(height: 4),
-
-              // Content Preview (2-3 lines)
-              Expanded(
-                child: Text(
-                  content,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: appFont(
-                    color: const Color(0xFF334155),
-                    fontSize: 12,
-                    height: 1.3,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4),
+                  topRight: Radius.circular(4),
+                  bottomLeft: Radius.circular(14),
+                  bottomRight: Radius.circular(22), // Natural curved paper lift
+                ),
+                boxShadow: [
+                  // Curled paper lift shadow at bottom-right
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isSelected ? 0.42 : 0.28),
+                    blurRadius: isSelected ? 16 : 10,
+                    offset: const Offset(4, 7),
                   ),
-                ),
-              ),
-
-              const SizedBox(height: 6),
-
-              // Bottom Badges: Bucket pill on left, Effort/Due on right
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Bucket badge pill
-                  if (bucket.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.black.withValues(alpha: 0.15),
-                        ),
-                      ),
-                      child: Text(
-                        bucket,
-                        style: appFont(
-                          color: const Color(0xFF1E293B),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 10,
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox.shrink(),
-
-                  // Due / effort tag
-                  Text(
-                    tagLabel,
-                    style: appFont(
-                      color: const Color(0xFF475569),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  // Ambient soft contact shadow
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
+              padding: const EdgeInsets.fromLTRB(10, 14, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title (one line, bold dark text)
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: appFont(
+                      color: const Color(0xFF0F172A),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+
+                  // Content Preview (max 3 lines)
+                  Expanded(
+                    child: Text(
+                      content,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: appFont(
+                        color: const Color(0xFF334155),
+                        fontSize: 11.5,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  // Bottom Badges: Bucket pill on left, Effort/Due dot on right
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Bucket badge pill
+                      if (bucket.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.black.withValues(alpha: 0.15),
+                            ),
+                          ),
+                          child: Text(
+                            bucket,
+                            style: appFont(
+                              color: const Color(0xFF1E293B),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox.shrink(),
+
+                      // Due-soon dot & Effort tag (only if not medium)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isDueSoon)
+                            Container(
+                              width: 6,
+                              height: 6,
+                              margin: EdgeInsets.only(right: showEffort != null ? 4 : 0),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFE11D48),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          if (showEffort != null)
+                            Text(
+                              showEffort,
+                              style: appFont(
+                                color: const Color(0xFF475569),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
 
         // Subtle paper curl lift highlight at bottom-right corner
         Positioned(
@@ -1391,13 +2161,43 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           ),
         ),
 
-        // Direct Positioned 3D Red Pushpin at top center (NO Stateless wrapper!)
+        // Positioned 3D Red Pushpin at top center with drag handle for reordering (Requirement 2)
         Positioned(
-          top: -6,
+          top: -8,
           left: 0,
           right: 0,
           child: Center(
-            child: _buildPushpinWidget(),
+            child: slotIndex != null
+                ? LongPressDraggable<int>(
+                    data: slotIndex,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: SizedBox(
+                        width: cellWidth,
+                        height: cellHeight,
+                        child: Opacity(
+                          opacity: 0.85,
+                          child: Transform.rotate(
+                            angle: rotationAngle ?? 0.0,
+                            alignment: Alignment.topCenter,
+                            child: _buildStickyNoteCard(
+                              thought: thought,
+                              color: color,
+                              isSelected: false,
+                              cellWidth: cellWidth,
+                              cellHeight: cellHeight,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      color: Colors.transparent,
+                      child: _buildPushpinWidget(),
+                    ),
+                  )
+                : _buildPushpinWidget(),
           ),
         ),
 
@@ -1410,7 +2210,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             child: _buildActionBar(context, thought),
           ),
       ],
-    );
+    ),
+  ),
+);
   }
 
   /// Expanded Sticky Note Popup / Modal Card (Requirement: "expand into view a bit above... popup on smaller screen")
@@ -1624,12 +2426,21 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                 color: const Color(0xFFFFD54F),
                                 onTap: () async {
                                   Navigator.pop(ctx);
-                                  await provider.markDone(id, true);
+                                  setState(() => _peelingThoughtId = id);
+                                  await Future.delayed(const Duration(milliseconds: 260));
+                                  final xp = await provider.markDone(id, true);
                                   SoundService.instance.play(SoundEvent.save,
                                       settings: settings);
                                   if (mounted) {
-                                    AppToast.show(context,
-                                        message: 'Marked "$title" as done');
+                                    final summary = GamificationService.instance.getSummaryString();
+                                    AppToast.show(
+                                      context,
+                                      message: xp > 0 ? 'Marked done! +$xp XP ($summary)' : 'Marked "$title" as done',
+                                    );
+                                    setState(() {
+                                      _peelingThoughtId = null;
+                                      _lastFreedSlotIndex = 0;
+                                    });
                                   }
                                 },
                               ),

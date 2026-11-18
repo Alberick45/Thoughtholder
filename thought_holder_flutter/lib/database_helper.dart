@@ -201,6 +201,25 @@ CREATE TABLE voice_segments (
 )
 ''');
 
+    await db.execute('''
+CREATE TABLE daily_goals (
+  date TEXT PRIMARY KEY,
+  tasks_completed INTEGER DEFAULT 0,
+  goal INTEGER DEFAULT 4,
+  xp_earned INTEGER DEFAULT 0,
+  goal_reached INTEGER DEFAULT 0,
+  rest_day INTEGER DEFAULT 0,
+  completed_thought_ids TEXT DEFAULT ''
+)
+''');
+
+    await db.execute('''
+CREATE TABLE gamification_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+)
+''');
+
     // Indexes for fast querying
     await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_bucket ON thoughts(bucket)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_status_done ON thoughts(status, done)');
@@ -349,6 +368,26 @@ CREATE TABLE IF NOT EXISTS bucket_aliases (
   alias_id TEXT PRIMARY KEY,
   canonical_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
+)
+''');
+
+    // Ensure gamification tables exist (included in database backups)
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS daily_goals (
+  date TEXT PRIMARY KEY,
+  tasks_completed INTEGER DEFAULT 0,
+  goal INTEGER DEFAULT 4,
+  xp_earned INTEGER DEFAULT 0,
+  goal_reached INTEGER DEFAULT 0,
+  rest_day INTEGER DEFAULT 0,
+  completed_thought_ids TEXT DEFAULT ''
+)
+''');
+
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS gamification_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
 )
 ''');
 

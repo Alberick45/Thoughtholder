@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
+import 'services/gamification_service.dart';
 import 'settings_service.dart';
 import 'sync_identity.dart';
 import 'utils/title_generator.dart';
@@ -257,6 +258,14 @@ class ThoughtProvider with ChangeNotifier {
     return sorted.isNotEmpty ? sorted.first : null;
   }
 
+  /// Highest-scoring unpinned idea across all buckets
+  Map<String, dynamic>? get bestNextUnpinnedThought {
+    for (final t in sortedThoughts) {
+      if (!isPinned(t)) return t;
+    }
+    return null;
+  }
+
   /// Ideas for a specific bucket, ranked best-first
   List<Map<String, dynamic>> getThoughtsForBucket(String bucketName) {
     final target = bucketName.trim().toLowerCase();
@@ -439,9 +448,22 @@ class ThoughtProvider with ChangeNotifier {
     await loadThoughts();
   }
 
-  Future<void> markDone(String id, bool done) async {
+  Future<int> markDone(String id, bool done) async {
+    final tIndex = _thoughts.indexWhere((t) => t['id'] == id);
+    final wasPinned = tIndex != -1 && ((_thoughts[tIndex]['is_pinned'] as int? ?? 0) == 1);
+    final thoughtData = tIndex != -1 ? Map<String, dynamic>.from(_thoughts[tIndex]) : null;
+
     await DatabaseHelper.instance.updateThoughtDone(id, done);
+    if (done && wasPinned) {
+      await unpinFromBoard(id);
+    }
     await loadThoughts();
+
+    int xpEarned = 0;
+    if (done && wasPinned && thoughtData != null) {
+      xpEarned = await GamificationService.instance.onPinnedTaskCompleted(thoughtData);
+    }
+    return xpEarned;
   }
 
   Future<void> moveToTrash(String id) async {

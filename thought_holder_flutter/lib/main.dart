@@ -17,6 +17,7 @@ import 'receiver_service.dart';
 import 'settings_service.dart';
 import 'history_service.dart';
 import 'gamification_provider.dart';
+import 'services/gamification_service.dart';
 import 'navigation_service.dart';
 import 'app_theme.dart';
 import 'package:home_widget/home_widget.dart';
@@ -64,11 +65,15 @@ void main() async {
   // Initialize SoundService (preloads feedback tones for low latency)
   await SoundService.instance.preload();
 
+  // Initialize Gamification & Daily Goals
+  await GamificationService.instance.init();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThoughtProvider()),
         ChangeNotifierProvider(create: (_) => GamificationProvider()),
+        ChangeNotifierProvider<GamificationService>.value(value: GamificationService.instance),
         ChangeNotifierProvider(create: (_) => NavigationNotifier()),
         ChangeNotifierProvider(create: (_) => BackgroundRecordingService()),
         ChangeNotifierProvider(create: (_) => NotificationService()),
