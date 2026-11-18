@@ -3663,8 +3663,11 @@ class _StreamScreenState extends State<StreamScreen> {
     final title = (idea['title'] as String?)?.isNotEmpty == true
         ? idea['title'] as String
         : (idea['content'] as String? ?? '');
+    final content = idea['content'] as String? ?? '';
     final bucket = (idea['bucket'] as String?)?.trim() ?? 'General';
-    final ctrl = TextEditingController();
+    final initialText = content.trim().isNotEmpty ? content.trim() : title.trim();
+    final ctrl = TextEditingController(text: initialText);
+    bool keepOriginal = true;
 
     showDialog(
       context: context,
@@ -3728,6 +3731,44 @@ class _StreamScreenState extends State<StreamScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              StatefulBuilder(
+                builder: (context, setDialogState) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: colors.bg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: colors.line),
+                    ),
+                    child: CheckboxListTile(
+                      value: keepOriginal,
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      activeColor: colors.gold,
+                      checkColor: Colors.black,
+                      title: Text(
+                        'Keep original note in "$bucket"',
+                        style: appFont(
+                          color: colors.text,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        keepOriginal
+                            ? 'Original note remains safely in bucket'
+                            : 'Original note will be moved to Trash once split',
+                        style: appFont(color: colors.mute, fontSize: 11),
+                      ),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          keepOriginal = val ?? true;
+                        });
+                      },
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -3750,20 +3791,26 @@ class _StreamScreenState extends State<StreamScreen> {
               if (lines.isEmpty) return;
 
               Navigator.pop(ctx);
-              final result = await provider.splitThought(idea['id'], lines);
+              final result = await provider.splitThought(idea['id'], lines,
+                  keepOriginal: keepOriginal);
 
               if (context.mounted) {
-                if (result.pinnedCount < result.createdCount) {
-                  _showUndoSnackBar(
-                    'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8).',
-                    () {},
-                  );
-                } else {
-                  _showUndoSnackBar(
-                    'Created and pinned ${result.createdCount} tasks in "$bucket".',
-                    () {},
-                  );
-                }
+                final originalMsg = keepOriginal
+                    ? 'Original note kept in "$bucket".'
+                    : 'Original note moved to Trash.';
+                final fullMsg = result.pinnedCount < result.createdCount
+                    ? 'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8). $originalMsg'
+                    : 'Created and pinned ${result.createdCount} tasks in "$bucket". $originalMsg';
+
+                _showUndoSnackBar(
+                  fullMsg,
+                  !keepOriginal
+                      ? () async {
+                          await provider.restoreFromTrash(idea['id']);
+                          await provider.loadThoughts();
+                        }
+                      : () {},
+                );
               }
             },
             child: const Text('Split Task'),

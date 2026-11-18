@@ -6,6 +6,7 @@ import '../settings_service.dart';
 import '../sound_service.dart';
 import '../thought_provider.dart';
 import '../settings_modal.dart';
+import '../utils/title_generator.dart';
 
 /// 8 Pastel post-it colors matching the design in Image 2
 const List<Color> kStickyNoteColors = [
@@ -37,12 +38,17 @@ class StickyNoteBoard extends StatefulWidget {
 
 class _StickyNoteBoardState extends State<StickyNoteBoard> {
   String? _selectedThoughtId;
+  int _lastSecondaryTapTime = 0;
 
   Color _getNoteColor(int index) {
     return kStickyNoteColors[index % kStickyNoteColors.length];
   }
 
   void _onBoardSecondaryTapDown(BuildContext context, TapDownDetails details) {
+    // If a note was just right-clicked within 350ms, prevent the outer board from opening its menu
+    if (DateTime.now().millisecondsSinceEpoch - _lastSecondaryTapTime < 350) {
+      return;
+    }
     _showBoardContextMenu(context, details.globalPosition);
   }
 
@@ -66,6 +72,28 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         side: const BorderSide(color: Color(0xFF333B48)),
       ),
       items: [
+        // Board Menu Header (clear distinction from Note Menu)
+        PopupMenuItem<String>(
+          enabled: false,
+          height: 32,
+          child: Row(
+            children: [
+              const Icon(Icons.dashboard_outlined,
+                  color: Color(0xFFFFD54F), size: 16),
+              const SizedBox(width: 8),
+              Text(
+                'BOARD OPTIONS',
+                style: appFont(
+                  color: const Color(0xFFFFD54F),
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 1),
         PopupMenuItem<String>(
           value: 'new',
           enabled: !isFull,
@@ -138,7 +166,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
 
   /// Right-click context menu specifically for a Sticky Note on the Board
   void _showNoteContextMenu(
-      BuildContext context, Offset globalPos, Map<String, dynamic> thought) async {
+      BuildContext context, Offset globalPos, Map<String, dynamic> thought,
+      {Color? color}) async {
+    _lastSecondaryTapTime = DateTime.now().millisecondsSinceEpoch;
     final provider = context.read<ThoughtProvider>();
     final settings = context.read<SettingsService>();
     final id = thought['id'] as String;
@@ -161,6 +191,31 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         side: const BorderSide(color: Color(0xFF333B48)),
       ),
       items: [
+        // Note Menu Header with Note Title
+        PopupMenuItem<String>(
+          enabled: false,
+          height: 34,
+          child: Row(
+            children: [
+              Icon(Icons.push_pin,
+                  color: color ?? const Color(0xFFFFD54F), size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: appFont(
+                    color: color ?? const Color(0xFFFFD54F),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 1),
         PopupMenuItem<String>(
           value: 'done',
           child: Row(
@@ -503,7 +558,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     final content = thought['content'] as String? ?? '';
     final title = thought['title'] as String? ?? '';
     final bucket = thought['bucket'] as String? ?? 'General';
-    final ctrl = TextEditingController();
+    final initialText = content.trim().isNotEmpty ? content.trim() : title.trim();
+    final ctrl = TextEditingController(text: initialText);
+    bool keepOriginal = true;
 
     showDialog(
       context: context,
@@ -567,6 +624,44 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              StatefulBuilder(
+                builder: (context, setDialogState) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF14171F),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF2E3544)),
+                    ),
+                    child: CheckboxListTile(
+                      value: keepOriginal,
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      activeColor: const Color(0xFFFFD54F),
+                      checkColor: Colors.black,
+                      title: Text(
+                        'Keep original note in "$bucket"',
+                        style: appFont(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        keepOriginal
+                            ? 'Original note remains safely in bucket (unpinned from board)'
+                            : 'Original note will be moved to Trash once split',
+                        style: appFont(color: Colors.grey, fontSize: 11),
+                      ),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          keepOriginal = val ?? true;
+                        });
+                      },
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -589,32 +684,35 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
               if (lines.isEmpty) return;
 
               Navigator.pop(ctx);
-              final result = await provider.splitThought(thought['id'], lines);
+              final result = await provider.splitThought(thought['id'], lines,
+                  keepOriginal: keepOriginal);
 
               if (mounted) {
-                if (result.pinnedCount < result.createdCount) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8).',
-                      ),
-                      behavior: SnackBarBehavior.floating,
-                      margin: const EdgeInsets.only(
-                          bottom: 80, left: 16, right: 94),
-                    ),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Created and pinned ${result.createdCount} tasks in "$bucket".',
-                      ),
-                      behavior: SnackBarBehavior.floating,
-                      margin: const EdgeInsets.only(
-                          bottom: 80, left: 16, right: 94),
-                    ),
-                  );
-                }
+                final originalMsg = keepOriginal
+                    ? 'Original note kept in "$bucket".'
+                    : 'Original note moved to Trash.';
+                final fullMsg = result.pinnedCount < result.createdCount
+                    ? 'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8). $originalMsg'
+                    : 'Created and pinned ${result.createdCount} tasks in "$bucket". $originalMsg';
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(fullMsg),
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.only(
+                        bottom: 80, left: 16, right: 94),
+                    action: !keepOriginal
+                        ? SnackBarAction(
+                            label: 'UNDO',
+                            textColor: const Color(0xFFFFD54F),
+                            onPressed: () async {
+                              await provider.restoreFromTrash(thought['id']);
+                              await provider.loadThoughts();
+                            },
+                          )
+                        : null,
+                  ),
+                );
               }
             },
             child: const Text('Split & Pin'),
@@ -820,9 +918,13 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         return SizedBox(
                           width: 180,
                           child: GestureDetector(
-                            onTap: widget.onToggleExpand,
+                            onTap: () {
+                              _showStickyNoteDetailPopup(
+                                  context, thought, color);
+                            },
                             onSecondaryTapDown: (details) => _showNoteContextMenu(
-                                context, details.globalPosition, thought),
+                                context, details.globalPosition, thought,
+                                color: color),
                             child: _buildStickyNoteCard(
                               thought: thought,
                               color: color,
@@ -1016,17 +1118,13 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                               ),
                               child: GestureDetector(
                                 onTap: () {
-                                  setState(() {
-                                    if (_selectedThoughtId == thought['id']) {
-                                      _selectedThoughtId = null;
-                                    } else {
-                                      _selectedThoughtId = thought['id'];
-                                    }
-                                  });
+                                  _showStickyNoteDetailPopup(
+                                      context, thought, color);
                                 },
                                 onSecondaryTapDown: (details) =>
                                     _showNoteContextMenu(
-                                        context, details.globalPosition, thought),
+                                        context, details.globalPosition, thought,
+                                        color: color),
                                 child: _buildStickyNoteCard(
                                   thought: thought,
                                   color: color,
@@ -1267,6 +1365,352 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             child: _buildActionBar(context, thought),
           ),
       ],
+    );
+  }
+
+  /// Expanded Sticky Note Popup / Modal Card (Requirement: "expand into view a bit above... popup on smaller screen")
+  void _showStickyNoteDetailPopup(
+      BuildContext context, Map<String, dynamic> thought, Color noteColor) {
+    final provider = context.read<ThoughtProvider>();
+    final settings = context.read<SettingsService>();
+    final id = thought['id'] as String;
+    final title = (thought['title'] as String?)?.isNotEmpty == true
+        ? thought['title'] as String
+        : (thought['content'] as String? ?? 'Untitled');
+    final content = thought['content'] as String? ?? '';
+    final bucket = (thought['bucket'] as String?)?.trim() ?? '';
+    final whenVal = thought['when_val'] as String? ?? '';
+    final timeVal = thought['time_val'] as String? ?? '';
+    final rawCreated = thought['created_at'];
+    final createdAtMs = (rawCreated as num?)?.toInt();
+    final timestamp = IdeaFormatters.formatReadableTimestamp(createdAtMs);
+
+    String tagLabel = '';
+    if (whenVal.isNotEmpty && whenVal != 'Soon') {
+      tagLabel = 'due $whenVal'.toLowerCase();
+    } else if (timeVal.isNotEmpty) {
+      tagLabel = timeVal.toLowerCase();
+    } else {
+      tagLabel = 'quick';
+    }
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      builder: (ctx) {
+        final screenWidth = MediaQuery.of(ctx).size.width;
+        final screenHeight = MediaQuery.of(ctx).size.height;
+        final dialogWidth = math.min(screenWidth * 0.9, 480.0);
+        final dialogMaxHeight = math.min(screenHeight * 0.82, 540.0);
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: Center(
+            child: SizedBox(
+              width: dialogWidth,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Main Expanded Note Card
+                  Container(
+                    constraints: BoxConstraints(maxHeight: dialogMaxHeight),
+                    decoration: BoxDecoration(
+                      color: noteColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          blurRadius: 24,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Top Row: Bucket pill, Effort/Due badge, Timestamp, and Close button
+                        Row(
+                          children: [
+                            if (bucket.isNotEmpty) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                  ),
+                                ),
+                                child: Text(
+                                  bucket,
+                                  style: appFont(
+                                    color: const Color(0xFF0F172A),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                tagLabel,
+                                style: appFont(
+                                  color: const Color(0xFF334155),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            if (timestamp.isNotEmpty)
+                              Text(
+                                timestamp,
+                                style: appFont(
+                                  color: const Color(0xFF475569),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: () => Navigator.pop(ctx),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.08),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // Full Title (no truncation)
+                        SelectableText(
+                          title,
+                          style: appFont(
+                            color: const Color(0xFF0F172A),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            height: 1.25,
+                          ),
+                        ),
+
+                        // Content (scrollable if long)
+                        if (content.isNotEmpty && content != title) ...[
+                          const SizedBox(height: 10),
+                          const Divider(
+                            color: Color(0x22000000),
+                            height: 1,
+                            thickness: 1,
+                          ),
+                          const SizedBox(height: 10),
+                          Flexible(
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              child: SelectableText(
+                                content,
+                                style: appFont(
+                                  color: const Color(0xFF334155),
+                                  fontSize: 13.5,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 12),
+                        ],
+
+                        const SizedBox(height: 14),
+
+                        // Action Bar at the bottom of the expanded note
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E222B),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _popupActionBtn(
+                                icon: Icons.check,
+                                label: 'Done',
+                                color: const Color(0xFFFFD54F),
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  await provider.markDone(id, true);
+                                  SoundService.instance.play(SoundEvent.save,
+                                      settings: settings);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Marked "$title" as done'),
+                                        behavior: SnackBarBehavior.floating,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 80, left: 16, right: 94),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                              _popupActionBtn(
+                                icon: Icons.splitscreen,
+                                label: 'Split',
+                                color: Colors.white,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  _showSplitDialog(context, thought);
+                                },
+                              ),
+                              _popupActionBtn(
+                                icon: Icons.edit_outlined,
+                                label: 'Edit',
+                                color: Colors.white,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  _showEditDialog(context, thought);
+                                },
+                              ),
+                              _popupActionBtn(
+                                icon: Icons.copy_outlined,
+                                label: 'Copy',
+                                color: Colors.white,
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  await provider.copyThought(id);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Duplicated "$title"'),
+                                        behavior: SnackBarBehavior.floating,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 80, left: 16, right: 94),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                              _popupActionBtn(
+                                icon: Icons.close,
+                                label: 'Unpin',
+                                color: Colors.white70,
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  await provider.unpinFromBoard(id);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            'Removed "$title" from board (kept in list)'),
+                                        behavior: SnackBarBehavior.floating,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 80, left: 16, right: 94),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                              _popupActionBtn(
+                                icon: Icons.delete_outline,
+                                label: 'Trash',
+                                color: Colors.redAccent,
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  await provider.moveToTrash(id);
+                                  SoundService.instance.play(SoundEvent.trash,
+                                      settings: settings);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Moved "$title" to trash'),
+                                        behavior: SnackBarBehavior.floating,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 80, left: 16, right: 94),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 3D Pushpin at top center
+                  Positioned(
+                    top: -7,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: _buildPushpinWidget(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _popupActionBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: appFont(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

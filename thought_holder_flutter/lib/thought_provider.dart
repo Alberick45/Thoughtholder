@@ -673,7 +673,7 @@ class ThoughtProvider with ChangeNotifier {
     return newThought;
   }
 
-  Future<SplitResult> splitThought(String id, List<String> tasks) async {
+  Future<SplitResult> splitThought(String id, List<String> tasks, {bool keepOriginal = false}) async {
     final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
     final bucket = existing['bucket'] as String?;
     int created = 0;
@@ -693,6 +693,15 @@ class ThoughtProvider with ChangeNotifier {
         final success = await pinToBoard(newT['id'] as String);
         if (success) pinned++;
       }
+    }
+
+    if (!keepOriginal) {
+      // Remove original from board and archive to trash
+      await unpinFromBoard(id);
+      await moveToTrash(id);
+    } else {
+      // Keep original safely in its bucket, unpin from board to make room for split tasks
+      await unpinFromBoard(id);
     }
 
     await loadThoughts();

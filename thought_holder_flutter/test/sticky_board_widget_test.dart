@@ -10,6 +10,28 @@ import 'package:thought_holder_flutter/thought_provider.dart';
 import 'package:thought_holder_flutter/settings_service.dart';
 import 'package:thought_holder_flutter/sound_service.dart';
 
+class FakeThoughtProvider extends ThoughtProvider {
+  final List<Map<String, dynamic>> _mockThoughts = [];
+
+  void addMockThought(Map<String, dynamic> t) {
+    _mockThoughts.add(t);
+    notifyListeners();
+  }
+
+  @override
+  List<Map<String, dynamic>> get thoughts => _mockThoughts;
+
+  @override
+  List<Map<String, dynamic>> get pinnedThoughts =>
+      _mockThoughts.where((t) => isPinned(t)).toList();
+
+  @override
+  int get sortedCount => _mockThoughts.where((t) => t['bucket'] != null).length;
+
+  @override
+  int get unsortedCount => _mockThoughts.where((t) => t['bucket'] == null).length;
+}
+
 void main() {
   late Directory tempDir;
   late SettingsService settingsService;
@@ -113,5 +135,57 @@ void main() {
     await tester.tap(find.textContaining('Sort: View all thoughts'));
     await tester.pump();
     expect(sortedClicked, isTrue);
+  });
+
+  testWidgets('Tapping a sticky note opens expanded popup with full actions', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final fakeProvider = FakeThoughtProvider();
+    fakeProvider.addMockThought({
+      'id': 'test-1',
+      'title': 'Final Year Project',
+      'content': 'Need to update final year group and call dad for robotics',
+      'bucket': 'School',
+      'is_pinned': 1,
+      'when_val': 'Soon',
+      'time_val': 'Quick',
+      'status': 'active',
+    });
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ThoughtProvider>.value(value: fakeProvider),
+          ChangeNotifierProvider<SettingsService>.value(value: settingsService),
+          ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: StickyNoteBoard(
+              isExpandedView: true,
+              onOpenSorted: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Final Year Project'), findsOneWidget);
+
+    // Tap on the note card
+    await tester.tap(find.text('Final Year Project'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Verify popup opened with full title, full content, and action buttons
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
+    expect(find.text('Split'), findsOneWidget);
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Unpin'), findsOneWidget);
+    expect(find.text('Trash'), findsOneWidget);
   });
 }
