@@ -1,0 +1,56 @@
+; ThoughtHolder Windows Inno Setup Script
+#ifndef MyAppVersion
+#define MyAppVersion "1.3.0"
+#endif
+
+#define MyAppName "ThoughtHolder"
+#define MyAppPublisher "A3PK Labs"
+#define MyAppURL "https://github.com/Alberick45/Thoughtholder"
+#define MyAppExeName "thought_holder_flutter.exe"
+#define MyBuildOutputDir "..\..\build\windows\x64\runner\Release"
+
+[Setup]
+AppId={{E68A91DC-6091-4D02-86FD-A8643194B4D8}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+AllowNoIcons=yes
+OutputDir=..\..\build\windows\installer
+OutputBaseFilename=thoughtholder-setup-{#MyAppVersion}
+Compression=lzma2/ultra64
+SolidCompression=yes
+ArchitecturesInstallIn64BitMode=x64compatible
+WizardStyle=modern
+CloseApplications=yes
+RestartApplications=yes
+PrivilegesRequiredOverridesAllowed=dialog
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+; Primary application executable and dependencies from Flutter Windows release build
+Source: "{#MyBuildOutputDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; NOTE: User data, database, audio recordings, and XP are stored exclusively in %APPDATA%
+; and are NEVER installed or overwritten by this installer.
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Only delete files installed in {app}, NEVER delete user data in %APPDATA% or %LOCALAPPDATA%
+Type: filesandordirs; Name: "{app}"
+

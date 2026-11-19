@@ -58,3 +58,9 @@ app.*.map.json
 *.bak
 backups/
 
+# Android signing secrets
+*.jks
+*.keystore
+key.properties
+
+

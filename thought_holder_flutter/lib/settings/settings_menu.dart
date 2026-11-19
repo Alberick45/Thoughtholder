@@ -17,6 +17,7 @@ import 'gestures_group.dart';
 import '../widgets/keyboard_safe_sheet.dart';
 import 'diagnostics_screen.dart';
 import 'settings_registry.dart';
+import 'updates_group.dart';
 
 class SettingsMenuScreen extends StatefulWidget {
   const SettingsMenuScreen({super.key});
@@ -442,7 +443,7 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
           ),
         ],
 
-        // 8. Diagnostics
+        // 9. Diagnostics
         const SizedBox(height: 10),
         _buildMenuRow(
           icon: Icons.health_and_safety_outlined,
@@ -453,6 +454,21 @@ class _SettingsMenuScreenState extends State<SettingsMenuScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+
+        // 10. Updates & data safety
+        _buildMenuRow(
+          icon: Icons.system_update_outlined,
+          title: 'Updates and safety',
+          summary: 'Check for updates, beta channel, and backups',
+          colors: colors,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const UpdatesGroupScreen()),
             );
           },
         ),

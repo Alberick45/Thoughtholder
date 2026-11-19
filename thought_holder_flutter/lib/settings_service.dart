@@ -765,5 +765,40 @@ class SettingsService extends ChangeNotifier {
     final now = DateTime.now();
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
+
+  // --- In-App Updates & Backup Settings ---
+
+  DateTime? get lastBackupDate {
+    final ms = _box.get('last_backup_timestamp') as int?;
+    return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+  }
+
+  Future<void> setLastBackupDate(DateTime dt) async {
+    await _box.put('last_backup_timestamp', dt.millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
+  bool get betaUpdatesEnabled => _box.get('beta_updates_enabled', defaultValue: false) as bool;
+
+  Future<void> setBetaUpdatesEnabled(bool value) async {
+    await _box.put('beta_updates_enabled', value);
+    notifyListeners();
+  }
+
+  int get skippedBuild => _box.get('skipped_update_build', defaultValue: 0) as int;
+
+  Future<void> setSkippedBuild(int build) async {
+    await _box.put('skipped_update_build', build);
+    notifyListeners();
+  }
+
+  DateTime? get lastUpdateCheckTime {
+    final ms = _box.get('last_update_check_time') as int?;
+    return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+  }
+
+  Future<void> setLastUpdateCheckTime(DateTime dt) async {
+    await _box.put('last_update_check_time', dt.millisecondsSinceEpoch);
+  }
 }
 

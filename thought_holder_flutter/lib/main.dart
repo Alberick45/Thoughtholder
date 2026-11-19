@@ -31,6 +31,10 @@ import 'utils/global_error_handler.dart';
 import 'services/self_check_service.dart';
 import 'settings/diagnostics_screen.dart';
 import 'widgets/swipe_tabs.dart';
+import 'services/app_update_service.dart';
+import 'services/database_migration_service.dart';
+import 'widgets/migration_failure_screen.dart';
+import 'widgets/update_sheets.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,6 +83,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => NotificationService()),
         ChangeNotifierProvider<SettingsService>.value(value: settingsService),
         ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+        ChangeNotifierProvider<AppUpdateService>.value(value: AppUpdateService.instance),
         Provider<GoogleDriveService>(create: (_) => GoogleDriveService()),
         Provider<HistoryService>.value(value: historyService),
         Provider<SenderService>.value(value: senderService),
@@ -94,6 +99,13 @@ class ThoughtHolderApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (DatabaseMigrationService.instance.migrationError != null) {
+      return MigrationFailureScreen(
+        backupPath: DatabaseMigrationService.instance.lastSafeBackupPath ?? '',
+        errorMessage: DatabaseMigrationService.instance.migrationError,
+      );
+    }
+
     final settings = context.watch<SettingsService>();
     final colors = AppColors.of(settings.theme);
 
@@ -232,6 +244,72 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
               ),
             );
+          }
+        } catch (_) {}
+      });
+
+      // In-app update check: once per 24 hours on launch
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (!mounted) return;
+        final recService = context.read<BackgroundRecordingService>();
+        if (AppUpdateService.instance.isVoiceCaptureActive(recService)) return;
+
+        try {
+          final manifest = await AppUpdateService.instance.checkForUpdates(
+            settings: settings,
+            manual: false,
+          );
+          if (manifest != null && mounted) {
+            final isAvail = await AppUpdateService.instance.isUpdateAvailable(
+              manifest: manifest,
+              settings: settings,
+            );
+            if (isAvail && mounted) {
+              final isReq = await AppUpdateService.instance.isUpdateRequired(manifest);
+              final installed = await AppUpdateService.instance.getInstalledVersion();
+              if (mounted) {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (sheetCtx) => UpdateAvailableSheet(
+                    manifest: manifest,
+                    installedVersion: installed.versionName,
+                    isRequired: isReq,
+                    onStartUpdate: () {
+                      Navigator.of(sheetCtx).pop();
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        isDismissible: false,
+                        enableDrag: false,
+                        backgroundColor: Colors.transparent,
+                        builder: (modalCtx) => UpdatingModal(
+                          manifest: manifest,
+                          onRetry: () {
+                            AppUpdateService.instance.startUpdate(
+                              manifest: manifest,
+                              settings: settings,
+                              recordingService: recService,
+                            );
+                          },
+                          onCancel: () {
+                            AppUpdateService.instance.cancelUpdate();
+                            Navigator.of(modalCtx).pop();
+                          },
+                        ),
+                      );
+
+                      AppUpdateService.instance.startUpdate(
+                        manifest: manifest,
+                        settings: settings,
+                        recordingService: recService,
+                      );
+                    },
+                  ),
+                );
+              }
+            }
           }
         } catch (_) {}
       });

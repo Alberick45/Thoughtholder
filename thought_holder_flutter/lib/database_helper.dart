@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'sync_identity.dart';
 import 'utils/title_generator.dart';
+import 'services/database_migration_service.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -92,9 +93,15 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
-      onCreate: _createDB,
-      onOpen: _onOpenDB,
+      version: 4,
+      onCreate: (db, version) async {
+        await _createDB(db, version);
+        await db.execute('PRAGMA user_version = 4');
+      },
+      onOpen: (db) async {
+        await _onOpenDB(db);
+        await DatabaseMigrationService.instance.runMigrations(db, path);
+      },
     );
   }
 

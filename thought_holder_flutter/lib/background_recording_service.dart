@@ -28,6 +28,7 @@ class BackgroundRecordingService extends ChangeNotifier {
   SettingsService? _lastSettings;
   bool _isRecording = false;
   bool _isPaused = false;
+  bool _isTranscribing = false;
   String? _pauseReason;
   int _durationSeconds = 0;
   String? _activeAudioPath;
@@ -36,6 +37,7 @@ class BackgroundRecordingService extends ChangeNotifier {
 
   bool get isRecording => _isRecording;
   bool get isPaused => _isPaused;
+  bool get isTranscribing => _isTranscribing;
   String? get pauseReason => _pauseReason;
   int get durationSeconds => _durationSeconds;
   String? get activeAudioPath => _activeAudioPath;
@@ -371,7 +373,11 @@ class BackgroundRecordingService extends ChangeNotifier {
     final file = File(audioPath);
     if (!await file.exists()) return;
 
-    final recId = existingRecordingId ?? _lastCreatedRecordingId ?? 'rec_${DateTime.now().millisecondsSinceEpoch}';
+    _isTranscribing = true;
+    notifyListeners();
+
+    try {
+      final recId = existingRecordingId ?? _lastCreatedRecordingId ?? 'rec_${DateTime.now().millisecondsSinceEpoch}';
     final hasKey = settings.hasGroqKey;
     final now = DateTime.now();
 
@@ -531,6 +537,10 @@ class BackgroundRecordingService extends ChangeNotifier {
         );
       },
     );
+    } finally {
+      _isTranscribing = false;
+      notifyListeners();
+    }
   }
 
   /// Retries transcription for an entire voice recording with one click

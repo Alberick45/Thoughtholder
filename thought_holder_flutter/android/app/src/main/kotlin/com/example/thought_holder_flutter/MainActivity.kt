@@ -11,9 +11,11 @@ class MainActivity : FlutterActivity() {
 
     private val RECORDING_CHANNEL = "com.thoughtholder.app/background_recording"
     private val NOTIFICATIONS_CHANNEL = "com.thoughtholder.app/notifications"
+    private val UPDATER_CHANNEL = "com.thoughtholder.app/updater"
 
     private var recordingMethodChannel: MethodChannel? = null
     private var notificationsMethodChannel: MethodChannel? = null
+    private var updaterMethodChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +121,87 @@ class MainActivity : FlutterActivity() {
                 "showCaptureReminder" -> {
                     NotificationHelper.showCaptureReminder(this)
                     result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Updater Channel Handler
+        updaterMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UPDATER_CHANNEL)
+        updaterMethodChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "canRequestPackageInstalls" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        result.success(packageManager.canRequestPackageInstalls())
+                    } else {
+                        result.success(true)
+                    }
+                }
+                "getAppVersion" -> {
+                    try {
+                        val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+                        } else {
+                            @Suppress("DEPRECATION")
+                            packageManager.getPackageInfo(packageName, 0)
+                        }
+                        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            pInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pInfo.versionCode.toLong()
+                        }
+                        result.success(mapOf(
+                            "versionName" to (pInfo.versionName ?: "1.3.0"),
+                            "versionCode" to versionCode
+                        ))
+                    } catch (e: Exception) {
+                        result.error("VERSION_ERROR", e.localizedMessage, null)
+                    }
+                }
+                "openInstallPermissionSettings" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SETTINGS_ERROR", e.localizedMessage, null)
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
+                "installApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        val file = java.io.File(filePath)
+                        if (file.exists()) {
+                            try {
+                                val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                                    this,
+                                    "${applicationContext.packageName}.fileprovider",
+                                    file
+                                )
+                                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(installIntent)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("INSTALL_ERROR", e.localizedMessage, null)
+                            }
+                        } else {
+                            result.error("FILE_NOT_FOUND", "APK file does not exist at $filePath", null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "filePath is required", null)
+                    }
                 }
                 else -> result.notImplemented()
             }
