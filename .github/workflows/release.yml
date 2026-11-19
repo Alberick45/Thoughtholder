@@ -151,58 +151,15 @@ jobs:
           cp downloaded_artifacts/android-artifact/thoughtholder-${{ env.VERSION }}.apk release_assets/
           cp downloaded_artifacts/windows-artifact/thoughtholder-setup-${{ env.VERSION }}.exe release_assets/
 
-          APK_SHA=$(sha256sum release_assets/thoughtholder-${{ env.VERSION }}.apk | awk '{print $1}')
-          WIN_SHA=$(sha256sum release_assets/thoughtholder-setup-${{ env.VERSION }}.exe | awk '{print $1}')
-
-          echo "APK SHA256: $APK_SHA"
-          echo "WIN SHA256: $WIN_SHA"
-
-          # Extract notes from RELEASE_NOTES.md if present
-          if [ -f RELEASE_NOTES.md ]; then
-            RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
-          else
-            RELEASE_NOTES_BODY="Thoughtholder Release v${{ env.VERSION }}"
-          fi
-
-          # Generate JSON array of notes
-          NOTES_JSON=$(python3 -c "
-import json
-notes = []
-try:
-    with open('RELEASE_NOTES.md', 'r', encoding='utf-8') as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped.startswith('- ') or stripped.startswith('* '):
-                notes.append(stripped[2:].strip())
-except Exception:
-    pass
-if not notes:
-    notes = ['General improvements and fixes']
-print(json.dumps(notes))
-          ")
-
-          # Write version.json
-          cat <<EOF > release_assets/version.json
-          {
-            "version": "${{ env.VERSION }}",
-            "build": ${{ env.BUILD_NUM }},
-            "minSupportedBuild": 1,
-            "notes": $NOTES_JSON,
-            "android": {
-              "url": "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/thoughtholder-${{ env.VERSION }}.apk",
-              "sha256": "$APK_SHA"
-            },
-            "windows": {
-              "url": "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/thoughtholder-setup-${{ env.VERSION }}.exe",
-              "sha256": "$WIN_SHA"
-            }
-          }
-          EOF
-
-          # Format cleanly
-          python3 -m json.tool release_assets/version.json > release_assets/version_formatted.json
-          mv release_assets/version_formatted.json release_assets/version.json
-          cat release_assets/version.json
+          python3 tool/generate_version_json.py \
+            --version "${{ env.VERSION }}" \
+            --build "${{ env.BUILD_NUM }}" \
+            --min-build 1 \
+            --apk "release_assets/thoughtholder-${{ env.VERSION }}.apk" \
+            --setup-exe "release_assets/thoughtholder-setup-${{ env.VERSION }}.exe" \
+            --notes-file "RELEASE_NOTES.md" \
+            --repo "${{ github.repository }}" \
+            --output "release_assets/version.json"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
