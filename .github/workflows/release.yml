@@ -1,0 +1,219 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract Version
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Building ThoughtHolder version: $VERSION"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Decode Keystore
+        working-directory: ./thought_holder_flutter
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > thought_holder_release.jks
+          cat <<EOF > key.properties
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=../thought_holder_release.jks
+          EOF
+
+      - name: Flutter Dependencies
+        working-directory: ./thought_holder_flutter
+        run: flutter pub get
+
+      - name: Build Release APK
+        working-directory: ./thought_holder_flutter
+        run: flutter build apk --release
+
+      - name: Copy & Name APK
+        run: |
+          mkdir -p artifacts
+          cp thought_holder_flutter/build/app/outputs/flutter-apk/app-release.apk artifacts/thoughtholder-${{ env.VERSION }}.apk
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-artifact
+          path: artifacts/thoughtholder-${{ env.VERSION }}.apk
+
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract Version
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Building ThoughtHolder version: $VERSION"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Flutter Dependencies
+        working-directory: ./thought_holder_flutter
+        shell: pwsh
+        run: flutter pub get
+
+      - name: Build Windows Application
+        working-directory: ./thought_holder_flutter
+        shell: pwsh
+        run: flutter build windows --release
+
+      - name: Compile Inno Setup Installer
+        working-directory: ./thought_holder_flutter
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ env.VERSION }}" "windows\installer\thought_holder_setup.iss"
+
+      - name: Prepare Windows Artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item "thought_holder_flutter\build\windows\installer\thoughtholder-setup-${{ env.VERSION }}.exe" -Destination "artifacts\"
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: artifacts/thoughtholder-setup-${{ env.VERSION }}.exe
+
+  create-release:
+    name: Package Manifest & Publish Release
+    needs: [build-android, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract Version & Build
+        id: meta
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          
+          # Extract build number from pubspec.yaml
+          BUILD_NUM=$(grep -m 1 'version:' thought_holder_flutter/pubspec.yaml | awk -F'+' '{print $2}' | tr -d ' \r\n')
+          if [ -z "$BUILD_NUM" ]; then
+            BUILD_NUM=1
+          fi
+          echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_ENV
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+
+      - name: Organize Release Files & Compute Checksums
+        run: |
+          mkdir -p release_assets
+          cp downloaded_artifacts/android-artifact/thoughtholder-${{ env.VERSION }}.apk release_assets/
+          cp downloaded_artifacts/windows-artifact/thoughtholder-setup-${{ env.VERSION }}.exe release_assets/
+
+          APK_SHA=$(sha256sum release_assets/thoughtholder-${{ env.VERSION }}.apk | awk '{print $1}')
+          WIN_SHA=$(sha256sum release_assets/thoughtholder-setup-${{ env.VERSION }}.exe | awk '{print $1}')
+
+          echo "APK SHA256: $APK_SHA"
+          echo "WIN SHA256: $WIN_SHA"
+
+          # Extract notes from RELEASE_NOTES.md if present
+          if [ -f RELEASE_NOTES.md ]; then
+            RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
+          else
+            RELEASE_NOTES_BODY="Thoughtholder Release v${{ env.VERSION }}"
+          fi
+
+          # Generate JSON array of notes
+          NOTES_JSON=$(python3 -c "
+import json
+notes = []
+try:
+    with open('RELEASE_NOTES.md', 'r', encoding='utf-8') as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith('- ') or stripped.startswith('* '):
+                notes.append(stripped[2:].strip())
+except Exception:
+    pass
+if not notes:
+    notes = ['General improvements and fixes']
+print(json.dumps(notes))
+          ")
+
+          # Write version.json
+          cat <<EOF > release_assets/version.json
+          {
+            "version": "${{ env.VERSION }}",
+            "build": ${{ env.BUILD_NUM }},
+            "minSupportedBuild": 1,
+            "notes": $NOTES_JSON,
+            "android": {
+              "url": "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/thoughtholder-${{ env.VERSION }}.apk",
+              "sha256": "$APK_SHA"
+            },
+            "windows": {
+              "url": "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/thoughtholder-setup-${{ env.VERSION }}.exe",
+              "sha256": "$WIN_SHA"
+            }
+          }
+          EOF
+
+          # Format cleanly
+          python3 -m json.tool release_assets/version.json > release_assets/version_formatted.json
+          mv release_assets/version_formatted.json release_assets/version.json
+          cat release_assets/version.json
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Thoughtholder v${{ env.VERSION }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/thoughtholder-${{ env.VERSION }}.apk
+            release_assets/thoughtholder-setup-${{ env.VERSION }}.exe
+            release_assets/version.json
+

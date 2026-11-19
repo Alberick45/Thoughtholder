@@ -54,3 +54,9 @@ backups/
 *.db-journal
 *.bak
 *.thoughtbundle
+
+# Android signing secrets
+*.jks
+*.keystore
+key.properties
+
