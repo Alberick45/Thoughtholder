@@ -104,6 +104,8 @@ jobs:
       - name: Build Windows Application
         working-directory: ./thought_holder_flutter
         shell: pwsh
+        env:
+          CL: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
         run: flutter build windows --release
 
       - name: Compile Inno Setup Installer
