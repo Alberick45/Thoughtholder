@@ -1012,6 +1012,8 @@ WHERE id = ?
     return await db.query('voice_recordings', orderBy: 'created_at DESC');
   }
 
+  Future<List<Map<String, dynamic>>> fetchAllVoiceRecordings() => fetchVoiceRecordings();
+
   Future<Map<String, dynamic>?> fetchVoiceRecording(String id) async {
     final db = await instance.database;
     final res = await db.query('voice_recordings', where: 'id = ?', whereArgs: [id]);

@@ -5,6 +5,7 @@ import '../config/update_config.dart';
 import '../services/app_update_service.dart';
 import '../settings_service.dart';
 import '../thought_provider.dart';
+import '../settings/export_ideas_dialog.dart';
 
 class UpdateAvailableSheet extends StatelessWidget {
   final VersionManifest manifest;
@@ -199,8 +200,10 @@ class UpdateAvailableSheet extends StatelessWidget {
                 height: 52,
                 child: OutlinedButton(
                   onPressed: () {
-                    final provider = Provider.of<ThoughtProvider>(context, listen: false);
-                    provider.exportAllThoughtsAsJson();
+                    showDialog(
+                      context: context,
+                      builder: (_) => const ExportIdeasDialog(),
+                    );
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,

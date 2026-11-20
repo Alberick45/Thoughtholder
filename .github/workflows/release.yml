@@ -38,13 +38,16 @@ jobs:
       - name: Decode Keystore
         working-directory: ./thought_holder_flutter
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > thought_holder_release.jks
-          cat <<EOF > key.properties
+          mkdir -p android/app
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/thought_holder_release.jks
+          cat <<EOF > android/key.properties
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=../thought_holder_release.jks
+          storeFile=thought_holder_release.jks
           EOF
+          cp android/app/thought_holder_release.jks thought_holder_release.jks
+          cp android/key.properties key.properties
 
       - name: Flutter Dependencies
         working-directory: ./thought_holder_flutter
@@ -52,7 +55,7 @@ jobs:
 
       - name: Build Release APK
         working-directory: ./thought_holder_flutter
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Copy & Name APK
         run: |
@@ -94,7 +97,9 @@ jobs:
       - name: Flutter Dependencies
         working-directory: ./thought_holder_flutter
         shell: pwsh
-        run: flutter pub get
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
 
       - name: Build Windows Application
         working-directory: ./thought_holder_flutter
@@ -105,7 +110,24 @@ jobs:
         working-directory: ./thought_holder_flutter
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ env.VERSION }}" "windows\installer\thought_holder_setup.iss"
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $iscc) {
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+              "C:\Program Files\Inno Setup 6\ISCC.exe",
+              "C:\ProgramData\chocolatey\bin\iscc.exe"
+            )
+            foreach ($cand in $candidates) {
+              if (Test-Path $cand) { $iscc = $cand; break }
+            }
+          }
+          if (-not $iscc) {
+            throw "ISCC.exe not found on runner."
+          }
+          Write-Host "Using ISCC at $iscc"
+          & $iscc "/DMyAppVersion=${{ env.VERSION }}" "windows\installer\thought_holder_setup.iss"
 
       - name: Prepare Windows Artifact
         shell: pwsh
