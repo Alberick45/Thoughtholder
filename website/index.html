@@ -1068,16 +1068,21 @@
         <h2>Stop losing good ideas</h2>
         <p>Download Thoughtholder for your phone or desktop, install it, and capture your first thought.</p>
 
+        <div id="releaseMetaBadge" style="margin: 0 auto 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); background: var(--surface2); padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line);">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+          Latest release: <strong id="releaseVersionBadge" style="color:var(--text)">v1.3.0</strong>
+        </div>
+
         <div class="download-buttons">
           <a class="btn" id="downloadWindowsBtn"
-            href="https://github.com/Alberick45/Thoughtholder/releases/download/v1%2C2.0/thoughtholder-1.2.0-windows-x64.zip"
-            target="_blank" rel="noopener" download>
-            Download for Windows (x64) · v1.2
+            href="https://github.com/Alberick45/Thoughtholder/releases/latest"
+            target="_blank" rel="noopener">
+            <span id="winBtnLabel">Download for Windows (Installer) · <span class="release-ver">v1.3.0</span></span>
           </a>
           <a class="btn ghost" id="downloadAndroidBtn"
-            href="https://github.com/Alberick45/Thoughtholder/releases/download/v1%2C2.0/app-release.apk"
-            target="_blank" rel="noopener" download>
-            Download for Android (APK) · v1.2
+            href="https://github.com/Alberick45/Thoughtholder/releases/latest"
+            target="_blank" rel="noopener">
+            <span id="androidBtnLabel">Download for Android (APK) · <span class="release-ver">v1.3.0</span></span>
           </a>
         </div>
 
@@ -1086,8 +1091,8 @@
             <span class="platform-tag">Windows Desktop</span>
             <h3>Windows Installation</h3>
             <ol class="install">
-              <li>Download and extract <code>thoughtholder-1.2.0-windows-x64.zip</code>.</li>
-              <li>Open the folder and run <code>thought_holder_flutter.exe</code>.</li>
+              <li>Download and run the installer (<code id="winInstallerFilename">thoughtholder-setup-1.3.0.exe</code>).</li>
+              <li>Follow the setup wizard to install Thoughtholder. (If Windows SmartScreen prompts, click <strong>More info</strong> → <strong>Run anyway</strong>).</li>
               <li>Press <kbd
                   style="background:var(--surface2);padding:2px 6px;border-radius:6px;border:1px solid var(--line);font-size:.85em">Ctrl
                   + Shift + B</kbd> from anywhere in Windows to summon instant capture.</li>
@@ -1098,7 +1103,7 @@
             <span class="platform-tag">Android Mobile</span>
             <h3>Android Installation</h3>
             <ol class="install">
-              <li>Open the downloaded <code>.apk</code>. If Android asks, allow installs from your browser.</li>
+              <li>Open the downloaded <code id="apkFilename">thoughtholder-1.3.0.apk</code>. If Android asks, allow installs from your browser.</li>
               <li>Tap <strong>Install</strong> (choose <strong>More details</strong> → <strong>Install anyway</strong>
                 if Play Protect prompts).</li>
               <li>Open Thoughtholder, allow microphone, and tap to record.</li>
@@ -1115,7 +1120,7 @@
 
         <div class="feedback-card">
           <div class="google-form-container">
-            <!-- Google Form Embedded: Replace the URL below with your exact Google Form link -->
+            <!-- Google Form Embedded -->
             <iframe
               src="https://docs.google.com/forms/d/e/1FAIpQLSdblfhD5zg8upCujWlm6XGsvdsr5v5Z8n4yrYcGqm7nJM6VoQ/viewform?embedded=true"
               width="100%" height="560" frameborder="0" marginheight="0" marginwidth="0"
@@ -1125,10 +1130,15 @@
           </div>
 
           <div class="form-fallback">
-            <p class="small">Prefer opening the form directly?</p>
-            <a class="btn ghost" id="googleFormLink"
-              href="https://docs.google.com/forms/d/e/1FAIpQLSdblfhD5zg8upCujWlm6XGsvdsr5v5Z8n4yrYcGqm7nJM6VoQ/viewform"
-              target="_blank" rel="noopener">Open Google Form in New Tab ↗</a>
+            <p class="small">Prefer opening the form directly or sharing on GitHub?</p>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:8px">
+              <a class="btn ghost" id="googleFormLink"
+                href="https://docs.google.com/forms/d/e/1FAIpQLSdblfhD5zg8upCujWlm6XGsvdsr5v5Z8n4yrYcGqm7nJM6VoQ/viewform"
+                target="_blank" rel="noopener">Open Google Form in New Tab ↗</a>
+              <a class="btn ghost"
+                href="https://github.com/Alberick45/Thoughtholder/issues/new"
+                target="_blank" rel="noopener">Report Issue on GitHub ↗</a>
+            </div>
           </div>
         </div>
       </div>
@@ -1190,6 +1200,98 @@
           } catch (e) { }
         });
       }
+
+      // Fetch latest release details from GitHub Releases API
+      function initLatestRelease() {
+        var repo = "Alberick45/Thoughtholder";
+        var apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
+
+        fetch(apiUrl)
+          .then(function (res) {
+            if (!res.ok) {
+              // If releases/latest returns 404 (e.g. no release marked latest yet), try list of releases
+              return fetch("https://api.github.com/repos/" + repo + "/releases")
+                .then(function (r) {
+                  if (!r.ok) throw new Error("GitHub API error: " + r.status);
+                  return r.json().then(function (arr) {
+                    if (Array.isArray(arr) && arr.length > 0) return arr[0];
+                    throw new Error("No releases found");
+                  });
+                });
+            }
+            return res.json();
+          })
+          .then(function (release) {
+            if (!release) return;
+            var tag = release.tag_name || "v1.3.0";
+            var assets = Array.isArray(release.assets) ? release.assets : [];
+
+            // Find Windows installer (.exe)
+            var winAsset = assets.find(function (a) {
+              var n = (a.name || "").toLowerCase();
+              return n.endsWith(".exe");
+            });
+
+            // Find Android APK (.apk)
+            var apkAsset = assets.find(function (a) {
+              var n = (a.name || "").toLowerCase();
+              return n.endsWith(".apk");
+            });
+
+            // Update version badge
+            var badge = $("releaseVersionBadge");
+            if (badge) badge.textContent = tag;
+
+            // Update all version placeholders
+            var verSpans = document.querySelectorAll(".release-ver");
+            verSpans.forEach(function (el) { el.textContent = tag; });
+
+            // Update Windows button & instructions
+            if (winAsset) {
+              if (dlWin) {
+                dlWin.href = winAsset.browser_download_url;
+                dlWin.setAttribute("download", winAsset.name);
+              }
+              var winFileEl = $("winInstallerFilename");
+              if (winFileEl) winFileEl.textContent = winAsset.name;
+            } else if (release.html_url && dlWin) {
+              dlWin.href = release.html_url;
+            }
+
+            // Update Android button & instructions
+            if (apkAsset) {
+              if (dlAnd) {
+                dlAnd.href = apkAsset.browser_download_url;
+                dlAnd.setAttribute("download", apkAsset.name);
+              }
+              var apkFileEl = $("apkFilename");
+              if (apkFileEl) apkFileEl.textContent = apkAsset.name;
+            } else if (release.html_url && dlAnd) {
+              dlAnd.href = release.html_url;
+            }
+
+            // If version.json exists in release assets, fetch it to display verified SHA-256
+            var verAsset = assets.find(function (a) {
+              return (a.name || "").toLowerCase() === "version.json";
+            });
+            if (verAsset && verAsset.browser_download_url) {
+              fetch(verAsset.browser_download_url)
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (meta) {
+                  if (meta && meta.platforms && meta.platforms.android && meta.platforms.android.sha256) {
+                    var shaEl = $("sha");
+                    if (shaEl) shaEl.textContent = meta.platforms.android.sha256;
+                  }
+                })
+                .catch(function () { /* ignore version.json load error */ });
+            }
+          })
+          .catch(function (err) {
+            console.warn("Could not retrieve latest release from GitHub API:", err);
+          });
+      }
+
+      initLatestRelease();
     })();
   </script>
 </body>
