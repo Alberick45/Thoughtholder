@@ -8,6 +8,7 @@ import '../sound_service.dart';
 import '../thought_provider.dart';
 import '../utils/title_generator.dart';
 import '../utils/app_toast.dart';
+import 'sticky_note_bucket_picker.dart';
 
 /// 8 Pastel post-it colors matching the design in Image 2
 const List<Color> kStickyNoteColors = [
@@ -350,7 +351,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
   void _showCreateStickyNoteDialog(BuildContext context) {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
-    final bucketCtrl = TextEditingController();
+    String selectedBucket = 'Raw';
 
     showDialog(
       context: context,
@@ -407,22 +408,12 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: bucketCtrl,
-                style: appFont(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Bucket (optional)',
-                  labelStyle: appFont(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFF333B48)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFFFFD54F)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
+              const SizedBox(height: 14),
+              StickyNoteBucketPicker(
+                initialBucket: 'Raw',
+                onBucketChanged: (val) {
+                  selectedBucket = val;
+                },
               ),
             ],
           ),
@@ -440,15 +431,16 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             onPressed: () async {
               final text = contentCtrl.text.trim();
               final title = titleCtrl.text.trim();
-              final bucket = bucketCtrl.text.trim();
               if (text.isEmpty && title.isEmpty) return;
 
               Navigator.pop(ctx);
               final provider = context.read<ThoughtProvider>();
+              final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
+              await provider.addBucket(bucket);
               final thought = await provider.addThought(
                 text.isNotEmpty ? text : title,
                 'thought',
-                bucket: bucket.isNotEmpty ? bucket : null,
+                bucket: bucket,
               );
               if (title.isNotEmpty) {
                 await provider.updateThoughtTitle(thought['id'], title,
@@ -1414,6 +1406,10 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     final provider = context.read<ThoughtProvider>();
     final titleCtrl = TextEditingController(text: thought['title'] ?? '');
     final contentCtrl = TextEditingController(text: thought['content'] ?? '');
+    final currentBucket = thought['bucket']?.toString().trim();
+    String selectedBucket = (currentBucket != null && currentBucket.isNotEmpty)
+        ? currentBucket
+        : 'Raw';
 
     showDialog(
       context: context,
@@ -1469,6 +1465,13 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                 ),
               ),
+              const SizedBox(height: 14),
+              StickyNoteBucketPicker(
+                initialBucket: selectedBucket,
+                onBucketChanged: (val) {
+                  selectedBucket = val;
+                },
+              ),
             ],
           ),
         ),
@@ -1484,6 +1487,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             ),
             onPressed: () async {
               Navigator.pop(ctx);
+              final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
+              await provider.addBucket(bucket);
+              await provider.fileThought(thought['id'], bucket);
               await provider.updateThoughtTitle(thought['id'], titleCtrl.text.trim(),
                   titleSource: 'user');
               await provider.updateContent(thought['id'], contentCtrl.text.trim());
