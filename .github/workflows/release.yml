@@ -56,7 +56,7 @@ jobs:
 
       - name: Build Release APK
         working-directory: ./thought_holder_flutter
-        run: flutter build apk --release
+        run: flutter build apk --release --build-name=${{ env.VERSION }} --build-number=${{ github.run_number }}
 
       - name: Copy & Name APK
         run: |
@@ -108,7 +108,7 @@ jobs:
         shell: pwsh
         env:
           CL: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
-        run: flutter build windows --release
+        run: flutter build windows --release --build-name=${{ env.VERSION }} --build-number=${{ github.run_number }}
 
       - name: Compile Inno Setup Installer
         working-directory: ./thought_holder_flutter
@@ -158,12 +158,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          
-          # Extract build number from pubspec.yaml
-          BUILD_NUM=$(grep -m 1 'version:' thought_holder_flutter/pubspec.yaml | awk -F'+' '{print $2}' | tr -d ' \r\n')
-          if [ -z "$BUILD_NUM" ]; then
-            BUILD_NUM=1
-          fi
+          BUILD_NUM=${{ github.run_number }}
           echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_ENV
 
       - name: Download Artifacts

@@ -75,6 +75,30 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Main Pin Settings: 'shuffle' or 'choose' ---
+  String get mainPinMode => _box.get('main_pin_mode', defaultValue: 'shuffle') as String;
+
+  Future<void> setMainPinMode(String value) async {
+    await _box.put('main_pin_mode', value);
+    notifyListeners();
+  }
+
+  String? get dailyShufflePickDate => _box.get('main_shuffle_pick_date') as String?;
+  String? get dailyShufflePickId => _box.get('main_shuffle_pick_id') as String?;
+
+  Future<void> setDailyShufflePick(String date, String thoughtId) async {
+    await _box.put('main_shuffle_pick_date', date);
+    await _box.put('main_shuffle_pick_id', thoughtId);
+    notifyListeners();
+  }
+
+  String? get chosenMainPinId => _box.get('chosen_main_pin_id') as String?;
+
+  Future<void> setChosenMainPinId(String id) async {
+    await _box.put('chosen_main_pin_id', id);
+    notifyListeners();
+  }
+
   /// Get the local device name (defaults to system hostname).
   String get deviceName {
     try {
@@ -791,6 +815,25 @@ class SettingsService extends ChangeNotifier {
     await _box.put('skipped_update_build', build);
     notifyListeners();
   }
+
+  String? get skippedVersion {
+    final v = _box.get('skipped_update_version') as String?;
+    return (v == null || v.trim().isEmpty) ? null : v.trim();
+  }
+
+  Future<void> setSkippedVersion(String version) async {
+    await _box.put('skipped_update_version', version.trim());
+    notifyListeners();
+  }
+
+  Future<void> clearSkippedUpdate() async {
+    await _box.delete('skipped_update_build');
+    await _box.delete('skipped_update_version');
+    notifyListeners();
+  }
+
+  bool get hasSkippedUpdate =>
+      skippedBuild > 0 || (skippedVersion != null && skippedVersion!.isNotEmpty);
 
   DateTime? get lastUpdateCheckTime {
     final ms = _box.get('last_update_check_time') as int?;

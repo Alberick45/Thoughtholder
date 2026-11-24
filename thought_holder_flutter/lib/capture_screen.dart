@@ -292,18 +292,20 @@ class _CaptureScreenState extends State<CaptureScreen>
         text,
         'thought',
         tags: 'text-entry',
+        bucket: 'Raw',
       );
       SoundService.instance.play(SoundEvent.save, settings: settings);
       _textController.clear();
       _prefsBox?.delete('draft_thought_text');
 
       if (mounted) {
-        nav.goToStream(subTab: 'unsorted');
+        nav.goToStream(subTab: 'sorted');
+        nav.selectBucket('Raw');
 
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              'Saved to Unsorted',
+              'Saved to Raw',
               style: appFont(color: Colors.amber, fontWeight: FontWeight.bold),
             ),
             backgroundColor: const Color(0xFF141416),

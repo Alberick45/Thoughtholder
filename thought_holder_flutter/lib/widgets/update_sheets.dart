@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../background_recording_service.dart';
 import '../config/update_config.dart';
 import '../services/app_update_service.dart';
 import '../settings_service.dart';
-import '../thought_provider.dart';
 import '../settings/export_ideas_dialog.dart';
 
 class UpdateAvailableSheet extends StatelessWidget {
@@ -245,6 +243,7 @@ class UpdateAvailableSheet extends StatelessWidget {
                       height: 52,
                       child: TextButton(
                         onPressed: () async {
+                          await settings.setSkippedVersion(manifest.version);
                           await settings.setSkippedBuild(manifest.build);
                           if (context.mounted) Navigator.of(context).pop();
                         },

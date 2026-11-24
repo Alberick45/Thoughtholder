@@ -21,6 +21,8 @@ class GamificationService extends ChangeNotifier {
   Set<String> _todayCompletedThoughtIds = {};
   int _todayXpEarned = 0;
   bool _initialized = false;
+  bool _mainGoalCompletedToday = false;
+  static const String _mainGoalMetaKey = 'main_goal_completed_date';
 
   int get totalXp => _totalXp;
   int get currentGoal => _isGoalFixed ? _fixedGoalValue : _currentGoal;
@@ -29,7 +31,9 @@ class GamificationService extends ChangeNotifier {
   int get streak => _streak;
   int get todayCompletedCount => _todayCompletedThoughtIds.length;
   int get todayXpEarned => _todayXpEarned;
-  bool get isDailyGoalReached => todayCompletedCount >= currentGoal;
+  bool get isMainGoalCompletedToday => _mainGoalCompletedToday;
+  bool get isDailyGoalReached =>
+      todayCompletedCount >= currentGoal || _mainGoalCompletedToday;
   int get restDaysUsedThisWeek => _restDaysUsedThisWeek;
 
   /// Calculates level based on XP.
@@ -121,6 +125,7 @@ class GamificationService extends ChangeNotifier {
       _streak = int.tryParse(meta['streak'] ?? '') ?? 0;
       _restDaysUsedThisWeek = int.tryParse(meta['rest_days_used_this_week'] ?? '') ?? 0;
       _weekIdentifier = meta['week_identifier'] ?? '';
+      _mainGoalCompletedToday = meta[_mainGoalMetaKey] == _getTodayString();
 
       final now = DateTime.now();
       final currentWeek = _getWeekIdentifier(now);
@@ -242,10 +247,12 @@ class GamificationService extends ChangeNotifier {
     }
 
     _todayCompletedThoughtIds.add(thoughtId);
-    final wasGoalReachedBefore = (_todayCompletedThoughtIds.length - 1) >= currentGoal;
-    final isGoalReachedNow = _todayCompletedThoughtIds.length >= currentGoal;
+    final wasGoalReachedBefore = _mainGoalCompletedToday ||
+        ((_todayCompletedThoughtIds.length - 1) >= currentGoal);
+    final isGoalReachedNow = _mainGoalCompletedToday ||
+        (_todayCompletedThoughtIds.length >= currentGoal);
 
-    // Bonus +10 XP when the daily goal is reached
+    // Bonus +10 XP when the daily goal is reached for the first time today
     if (!wasGoalReachedBefore && isGoalReachedNow) {
       xpToAdd += 10;
       _consecutiveGoalHitDays++;
@@ -289,6 +296,50 @@ class GamificationService extends ChangeNotifier {
 
     notifyListeners();
     return xpToAdd;
+  }
+
+  /// Completing all Main items for the period counts as the daily goal in the existing game.
+  Future<int> onMainGoalCompleted() async {
+    await init();
+    final todayStr = _getTodayString();
+    if (_mainGoalCompletedToday) return 0;
+    _mainGoalCompletedToday = true;
+    await _saveMetaKey(_mainGoalMetaKey, todayStr);
+
+    int xpAdded = 0;
+    final wasGoalReachedBefore = todayCompletedCount >= currentGoal;
+    if (!wasGoalReachedBefore) {
+      xpAdded = 10;
+      _totalXp += 10;
+      _todayXpEarned += 10;
+      _consecutiveGoalHitDays++;
+      _streak++;
+
+      await _saveMetaKey('streak', '$_streak');
+      await _saveMetaKey('consecutive_goal_hit_days', '$_consecutiveGoalHitDays');
+      await _saveMetaKey('total_xp', '$_totalXp');
+    }
+
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.insert(
+        'daily_goals',
+        {
+          'date': todayStr,
+          'tasks_completed': _todayCompletedThoughtIds.length,
+          'goal': currentGoal,
+          'xp_earned': _todayXpEarned,
+          'goal_reached': 1,
+          'completed_thought_ids': jsonEncode(_todayCompletedThoughtIds.toList()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      AppLogger.error('GamificationService', 'Failed saving main goal completion: $e');
+    }
+
+    notifyListeners();
+    return xpAdded;
   }
 
   /// Summary string for end-of-day or completion toast: e.g. "4/4 done, +55 XP, streak 6"

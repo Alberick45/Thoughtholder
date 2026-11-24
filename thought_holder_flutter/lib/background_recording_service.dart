@@ -473,6 +473,7 @@ class BackgroundRecordingService extends ChangeNotifier {
             stitched,
             'thought',
             tags: 'whisper-voice',
+            bucket: 'Raw',
           );
 
           await DatabaseHelper.instance.updateVoiceRecording(recId, {
@@ -514,6 +515,7 @@ class BackgroundRecordingService extends ChangeNotifier {
       fallbackTitle,
       'thought',
       tags: 'voice-pending-groq:$audioPath',
+      bucket: 'Raw',
     );
 
     await DatabaseHelper.instance.updateVoiceRecording(recId, {

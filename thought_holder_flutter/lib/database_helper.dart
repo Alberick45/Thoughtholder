@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'sync_identity.dart';
 import 'utils/title_generator.dart';
+import 'utils/app_logger.dart';
 import 'services/database_migration_service.dart';
 
 class DatabaseHelper {
@@ -93,10 +94,10 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await _createDB(db, version);
-        await db.execute('PRAGMA user_version = 4');
+        await db.execute('PRAGMA user_version = 5');
       },
       onOpen: (db) async {
         await _onOpenDB(db);
@@ -106,7 +107,7 @@ class DatabaseHelper {
   }
 
   Future _createDB(Database db, int version) async {
-    // Thoughts table (UPDATE 7 schema with UUID, HLC, revision, title, title_source)
+    // Thoughts table (UPDATE 7 + V5 schema with recurrence, last_completed_at, reminder_at)
     await db.execute('''
 CREATE TABLE thoughts (
   id TEXT PRIMARY KEY,
@@ -138,15 +139,20 @@ CREATE TABLE thoughts (
   skip_count INTEGER DEFAULT 0,
   is_pinned INTEGER DEFAULT 0,
   board_position INTEGER DEFAULT -1,
-  pinned_at INTEGER
+  pinned_at INTEGER,
+  recurrence TEXT,
+  last_completed_at INTEGER,
+  reminder_at INTEGER,
+  due_at INTEGER
 )
 ''');
 
-    // Buckets table (UPDATE 7 schema with UUID id)
+    // Buckets table (UPDATE 7 + V5 schema with type)
     await db.execute('''
 CREATE TABLE buckets (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  type TEXT DEFAULT 'normal',
   icon TEXT DEFAULT 'folder',
   created_at INTEGER NOT NULL,
   updated_at TEXT,
@@ -154,6 +160,27 @@ CREATE TABLE buckets (
   revision INTEGER DEFAULT 1
 )
 ''');
+
+    // Seed Raw, Main, Sides system buckets
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final systemBuckets = [
+      {'name': 'Raw', 'type': 'raw', 'icon': 'inbox'},
+      {'name': 'Main', 'type': 'main', 'icon': 'star'},
+      {'name': 'Sides', 'type': 'sides', 'icon': 'list'},
+    ];
+    for (final sys in systemBuckets) {
+      final id = 'bucket_${sys['name']!.toLowerCase()}';
+      await db.insert('buckets', {
+        'id': id,
+        'name': sys['name'],
+        'type': sys['type'],
+        'icon': sys['icon'],
+        'created_at': nowMs,
+        'updated_at': DateTime.now().toIso8601String(),
+        'updated_by': 'system',
+        'revision': 1,
+      });
+    }
 
     // Deletions / Tombstones table (90-day retention)
     await db.execute('''
@@ -297,6 +324,18 @@ CREATE TABLE gamification_meta (
     if (!existingTCols.contains('pinned_at')) {
       await db.execute('ALTER TABLE thoughts ADD COLUMN pinned_at INTEGER');
     }
+    if (!existingTCols.contains('recurrence')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN recurrence TEXT');
+    }
+    if (!existingTCols.contains('last_completed_at')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN last_completed_at INTEGER');
+    }
+    if (!existingTCols.contains('reminder_at')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN reminder_at INTEGER');
+    }
+    if (!existingTCols.contains('due_at')) {
+      await db.execute('ALTER TABLE thoughts ADD COLUMN due_at INTEGER');
+    }
 
     // Ensure voice_recordings and voice_segments tables exist
     await db.execute('''
@@ -357,6 +396,46 @@ CREATE TABLE IF NOT EXISTS buckets (
     }
     if (!existingBCols.contains('revision')) {
       await db.execute('ALTER TABLE buckets ADD COLUMN revision INTEGER DEFAULT 1');
+    }
+    if (!existingBCols.contains('type')) {
+      await db.execute("ALTER TABLE buckets ADD COLUMN type TEXT DEFAULT 'normal'");
+    }
+
+    // Seed Raw, Main, Sides system buckets if not present
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final systemBuckets = [
+      {'name': 'Raw', 'type': 'raw', 'icon': 'inbox'},
+      {'name': 'Main', 'type': 'main', 'icon': 'star'},
+      {'name': 'Sides', 'type': 'sides', 'icon': 'list'},
+    ];
+    for (final sys in systemBuckets) {
+      final existing = await db.query(
+        'buckets',
+        where: 'LOWER(name) = ?',
+        whereArgs: [sys['name']!.toLowerCase()],
+      );
+      if (existing.isNotEmpty) {
+        final currentType = existing.first['type']?.toString();
+        if (currentType != sys['type']) {
+          await db.update(
+            'buckets',
+            {'type': sys['type']},
+            where: 'id = ?',
+            whereArgs: [existing.first['id']],
+          );
+        }
+      } else {
+        await db.insert('buckets', {
+          'id': 'bucket_${sys['name']!.toLowerCase()}',
+          'name': sys['name'],
+          'type': sys['type'],
+          'icon': sys['icon'],
+          'created_at': nowMs,
+          'updated_at': DateTime.now().toIso8601String(),
+          'updated_by': 'system',
+          'revision': 1,
+        });
+      }
     }
 
     // 3. Ensure deleted_records and bucket_aliases tables exist
@@ -661,23 +740,79 @@ WHERE id = ?
     final node = deviceId ?? currentDeviceId;
     final int now = DateTime.now().millisecondsSinceEpoch;
 
-    await db.rawUpdate('''
+    if (done) {
+      await db.rawUpdate('''
 UPDATE thoughts SET
-  done = ?,
-  status = ?,
+  done = 1,
+  status = 'completed',
   done_at = ?,
+  last_completed_at = ?,
   updated_at = ?,
   updated_by = ?,
   revision = revision + 1
 WHERE id = ?
 ''', [
-      done ? 1 : 0,
-      done ? 'completed' : 'active',
-      done ? now : null,
-      Hlc.now(node).toString(),
-      node,
-      id,
-    ]);
+        now,
+        now,
+        Hlc.now(node).toString(),
+        node,
+        id,
+      ]);
+    } else {
+      await db.rawUpdate('''
+UPDATE thoughts SET
+  done = 0,
+  status = 'active',
+  done_at = NULL,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [
+        Hlc.now(node).toString(),
+        node,
+        id,
+      ]);
+    }
+  }
+
+  Future<void> updateThoughtRecurrence(String id, String? recurrence, {String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    await db.rawUpdate('''
+UPDATE thoughts SET
+  recurrence = ?,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [recurrence, Hlc.now(node).toString(), node, id]);
+  }
+
+  Future<void> updateThoughtReminder(String id, int? reminderAt, {String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    await db.rawUpdate('''
+UPDATE thoughts SET
+  reminder_at = ?,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [reminderAt, Hlc.now(node).toString(), node, id]);
+  }
+
+  Future<void> updateThoughtDueAt(String id, int? dueAt, {String? deviceId}) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    await db.rawUpdate('''
+UPDATE thoughts SET
+  due_at = ?,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ?
+''', [dueAt, Hlc.now(node).toString(), node, id]);
   }
 
   Future<void> updateThoughtTrashed(String id, bool trashed, {String? deviceId}) async {
@@ -735,7 +870,7 @@ WHERE id = ?
   }
 
   Future<String> insertBucket(String name,
-      {String icon = 'folder', String? id, String? deviceId}) async {
+      {String icon = 'folder', String type = 'normal', String? id, String? deviceId}) async {
     final db = await instance.database;
     final node = deviceId ?? currentDeviceId;
     final trimmed = name.trim();
@@ -749,6 +884,7 @@ WHERE id = ?
       {
         'id': bucketId,
         'name': trimmed,
+        'type': type,
         'icon': icon,
         'created_at': now,
         'updated_at': Hlc.now(node).toString(),
@@ -767,6 +903,18 @@ WHERE id = ?
     if (trimmed.isEmpty) return;
 
     await db.transaction((txn) async {
+      // Protect Raw, Main, Sides from renaming
+      final rows = await txn.query('buckets', where: 'name = ?', whereArgs: [oldName]);
+      if (rows.isNotEmpty) {
+        final bType = (rows.first['type'] as String?)?.toLowerCase();
+        final nLower = oldName.trim().toLowerCase();
+        if (bType == 'raw' || bType == 'main' || bType == 'sides' ||
+            nLower == 'raw' || nLower == 'main' || nLower == 'sides') {
+          AppLogger.info('DatabaseHelper', 'Cannot rename protected system bucket: $oldName');
+          return;
+        }
+      }
+
       await txn.rawUpdate('''
 UPDATE buckets SET
   name = ?,
@@ -806,6 +954,15 @@ WHERE name = ?
     await db.transaction((txn) async {
       final rows = await txn.query('buckets', where: 'name = ?', whereArgs: [name]);
       if (rows.isNotEmpty) {
+        // Protect Raw, Main, Sides from deletion
+        final bType = (rows.first['type'] as String?)?.toLowerCase();
+        final nLower = name.trim().toLowerCase();
+        if (bType == 'raw' || bType == 'main' || bType == 'sides' ||
+            nLower == 'raw' || nLower == 'main' || nLower == 'sides') {
+          AppLogger.info('DatabaseHelper', 'Cannot delete protected system bucket: $name');
+          return;
+        }
+
         final bId = rows.first['id'] as String? ?? name;
         await txn.insert(
           'deleted_records',

@@ -57,7 +57,7 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
         manual: true,
       );
 
-      if (!mounted) return;
+      if (!context.mounted) return;
 
       if (manifest == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -72,7 +72,7 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
         ignoreSkipped: true, // Manual check ignores skipped version
       );
 
-      if (!mounted) return;
+      if (!context.mounted) return;
 
       if (isAvail) {
         final isReq = await AppUpdateService.instance.isUpdateRequired(manifest);
@@ -86,9 +86,10 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
+        final message = e is UpdateCheckException ? e.userMessage : 'Update check failed: $e';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Update check failed: $e')),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
@@ -103,6 +104,8 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      isDismissible: !isRequired,
+      enableDrag: !isRequired,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => UpdateAvailableSheet(
         manifest: manifest,
@@ -266,6 +269,47 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          if (settings.hasSkippedUpdate) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: colors.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: colors.line),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.visibility_off_outlined, color: colors.mute, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Skipped update: ${settings.skippedVersion ?? 'build ${settings.skippedBuild}'}',
+                      style: appFont(color: colors.mute, fontSize: 13),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await settings.clearSkippedUpdate();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Skipped update cleared')),
+                        );
+                      }
+                    },
+                    child: Text(
+                      'Reset',
+                      style: appFont(
+                        color: colors.gold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Backup Date & Safety Card
           Text(
@@ -368,7 +412,7 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
             ),
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              activeColor: colors.gold,
+              activeThumbColor: colors.gold,
               title: Text(
                 'Get beta versions',
                 style: appFont(

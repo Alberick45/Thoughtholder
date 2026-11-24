@@ -275,6 +275,16 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           ),
         ),
         PopupMenuItem<String>(
+          value: 'move_bucket',
+          child: Row(
+            children: [
+              const Icon(Icons.drive_file_move_outlined, color: Color(0xFFFFD54F), size: 18),
+              const SizedBox(width: 10),
+              Text('Move to bucket', style: appFont(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'unpin',
           child: Row(
             children: [
@@ -331,6 +341,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
           AppToast.show(context, message: 'Duplicated "$title"');
         }
         break;
+      case 'move_bucket':
+        _showMoveToBucketDialog(context, thought);
+        break;
       case 'unpin':
         await provider.unpinFromBoard(id);
         if (mounted) {
@@ -348,109 +361,256 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     }
   }
 
-  void _showCreateStickyNoteDialog(BuildContext context) {
-    final titleCtrl = TextEditingController();
-    final contentCtrl = TextEditingController();
-    String selectedBucket = 'Raw';
+  void _showMoveToBucketDialog(BuildContext context, Map<String, dynamic> thought) {
+    final provider = context.read<ThoughtProvider>();
+    final currentBucket = (thought['bucket'] ?? '').toString().trim();
+    final buckets = provider.bucketNames.toList();
+    for (final required in ['Raw', 'Main', 'Sides']) {
+      if (!buckets.any((b) => b.toLowerCase() == required.toLowerCase())) {
+        buckets.insert(0, required);
+      }
+    }
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E222B),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Color(0xFF333B48)),
-        ),
-        title: Text(
-          'New Sticky Note',
-          style: appFont(
-            color: const Color(0xFFFFD54F),
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                autofocus: true,
-                style: appFont(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  labelStyle: appFont(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFF333B48)),
-                    borderRadius: BorderRadius.circular(8),
+      builder: (ctx) {
+        String selected = buckets.isNotEmpty ? buckets.first : 'Raw';
+        if (currentBucket.isNotEmpty &&
+            buckets.any((b) => b.toLowerCase() == currentBucket.toLowerCase())) {
+          selected = buckets.firstWhere(
+              (b) => b.toLowerCase() == currentBucket.toLowerCase());
+        }
+        final newBucketCtrl = TextEditingController();
+        return StatefulBuilder(
+          builder: (ctx, setState) => AlertDialog(
+            backgroundColor: const Color(0xFF1E222B),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFF333B48)),
+            ),
+            title: Text(
+              'Move to bucket',
+              style: appFont(
+                  color: const Color(0xFFFFD54F),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: buckets.map((name) {
+                      final isSelected =
+                          name.toLowerCase() == selected.toLowerCase();
+                      return ChoiceChip(
+                        label: Text(name),
+                        selected: isSelected,
+                        selectedColor: const Color(0xFFFFD54F),
+                        labelStyle: appFont(
+                          color: isSelected ? Colors.black : Colors.white,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 13,
+                        ),
+                        backgroundColor: const Color(0xFF262C38),
+                        onSelected: (_) => setState(() => selected = name),
+                      );
+                    }).toList(),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFFFFD54F)),
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newBucketCtrl,
+                    style: appFont(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Or create new bucket',
+                      labelStyle: appFont(color: Colors.grey),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Color(0xFF333B48)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: contentCtrl,
-                maxLines: 3,
-                style: appFont(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Thought text',
-                  labelStyle: appFont(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFF333B48)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFFFFD54F)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: appFont(color: Colors.grey)),
               ),
-              const SizedBox(height: 14),
-              StickyNoteBucketPicker(
-                initialBucket: 'Raw',
-                onBucketChanged: (val) {
-                  selectedBucket = val;
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFD54F),
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () async {
+                  final typed = newBucketCtrl.text.trim();
+                  final target = typed.isNotEmpty ? typed : selected;
+                  Navigator.pop(ctx);
+                  await provider.moveToBucket(thought['id'] as String, target);
+                  if (mounted) {
+                    AppToast.show(context, message: 'Moved to "$target"');
+                  }
                 },
+                child: const Text('Move'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: appFont(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFD54F),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              final text = contentCtrl.text.trim();
-              final title = titleCtrl.text.trim();
-              if (text.isEmpty && title.isEmpty) return;
+        );
+      },
+    );
+  }
 
-              Navigator.pop(ctx);
-              final provider = context.read<ThoughtProvider>();
-              final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
-              await provider.addBucket(bucket);
-              final thought = await provider.addThought(
-                text.isNotEmpty ? text : title,
-                'thought',
-                bucket: bucket,
-              );
-              if (title.isNotEmpty) {
-                await provider.updateThoughtTitle(thought['id'], title,
-                    titleSource: 'user');
-              }
-              await provider.pinToBoard(thought['id']);
-            },
-            child: const Text('Pin to Board'),
+  void _showCreateStickyNoteDialog(BuildContext context,
+      {String initialBucket = 'Raw'}) {
+    final titleCtrl = TextEditingController();
+    final contentCtrl = TextEditingController();
+    String selectedBucket = initialBucket;
+    DateTime? optionalDue;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E222B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF333B48)),
           ),
-        ],
+          title: Text(
+            selectedBucket.toLowerCase() == 'main'
+                ? 'New Main task'
+                : 'New Sticky Note',
+            style: appFont(
+              color: const Color(0xFFFFD54F),
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  autofocus: true,
+                  style: appFont(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    labelStyle: appFont(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF333B48)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contentCtrl,
+                  maxLines: 3,
+                  style: appFont(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Thought text',
+                    labelStyle: appFont(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF333B48)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                StickyNoteBucketPicker(
+                  initialBucket: initialBucket,
+                  onBucketChanged: (val) {
+                    setDialogState(() => selectedBucket = val);
+                  },
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFFFD54F),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                    ),
+                    icon: const Icon(Icons.event_outlined, size: 16),
+                    label: Text(
+                      optionalDue == null
+                          ? 'Optional date'
+                          : 'Date: ${optionalDue!.year}-${optionalDue!.month.toString().padLeft(2, '0')}-${optionalDue!.day.toString().padLeft(2, '0')}',
+                      style: appFont(fontSize: 12),
+                    ),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: optionalDue ?? DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => optionalDue = picked);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: appFont(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFD54F),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () async {
+                final text = contentCtrl.text.trim();
+                final title = titleCtrl.text.trim();
+                if (text.isEmpty && title.isEmpty) return;
+
+                Navigator.pop(ctx);
+                final provider = context.read<ThoughtProvider>();
+                final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
+                await provider.addBucket(bucket);
+                final thought = await provider.addThought(
+                  text.isNotEmpty ? text : title,
+                  'thought',
+                  bucket: bucket,
+                  dueAt: optionalDue?.millisecondsSinceEpoch,
+                );
+                if (title.isNotEmpty) {
+                  await provider.updateThoughtTitle(thought['id'], title,
+                      titleSource: 'user');
+                }
+                if (bucket.toLowerCase() != 'main') {
+                  await provider.pinToBoard(thought['id']);
+                }
+              },
+              child: Text(selectedBucket.toLowerCase() == 'main'
+                  ? 'Add to Main'
+                  : 'Pin to Board'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -546,7 +706,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         ),
                       ),
                       Text(
-                        '${provider.pinnedCount}/8 pinned',
+                        '${provider.pinnedCount}/${ThoughtProvider.maxBoardPins} pinned',
                         style: appFont(
                           color: isFull ? Colors.amberAccent : const Color(0xFF9CA3AF),
                           fontSize: 12,
@@ -562,7 +722,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                 _buildAddMenuOption(
                   icon: Icons.note_add_outlined,
                   title: 'New sticky note',
-                  subtitle: isFull ? 'Board is full (8/8). Swap a note to add' : 'Create a fresh thought on the board',
+                  subtitle: isFull ? 'Board is full (${ThoughtProvider.maxBoardPins}/${ThoughtProvider.maxBoardPins}). Swap a note to add' : 'Create a fresh thought on the board',
                   enabled: !isFull,
                   onTap: () {
                     Navigator.pop(ctx);
@@ -690,7 +850,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Board is full (8/8). Tap "Swap" to replace a note on the board.',
+                              'Board is full (${ThoughtProvider.maxBoardPins}/${ThoughtProvider.maxBoardPins}). Tap "Swap" to replace a note on the board.',
                               style: appFont(color: const Color(0xFFFFD54F), fontSize: 11),
                             ),
                           ),
@@ -1379,7 +1539,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     ? 'Original note kept in "$bucket".'
                     : 'Original note moved to Trash.';
                 final fullMsg = result.pinnedCount < result.createdCount
-                    ? 'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full 8/8). $originalMsg'
+                    ? 'Created ${result.createdCount} tasks in "$bucket". Pinned ${result.pinnedCount}; remaining tasks kept in bucket (board full ${ThoughtProvider.maxBoardPins}/${ThoughtProvider.maxBoardPins}). $originalMsg'
                     : 'Created and pinned ${result.createdCount} tasks in "$bucket". $originalMsg';
 
                 AppToast.show(
@@ -1410,93 +1570,195 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     String selectedBucket = (currentBucket != null && currentBucket.isNotEmpty)
         ? currentBucket
         : 'Raw';
+    final rawDue = thought['due_at'];
+    DateTime? dueDate = rawDue is num
+        ? DateTime.fromMillisecondsSinceEpoch(rawDue.toInt())
+        : null;
+    String recurrence =
+        (thought['recurrence'] as String?)?.trim().toLowerCase() ?? '';
+    if (recurrence.isEmpty &&
+        (selectedBucket.toLowerCase() == 'main' ||
+            selectedBucket.toLowerCase() == 'sides')) {
+      recurrence = 'daily';
+    }
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E222B),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Color(0xFF333B48)),
-        ),
-        title: Text(
-          'Edit Sticky Note',
-          style: appFont(
-            color: const Color(0xFFFFD54F),
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E222B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF333B48)),
           ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                style: appFont(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  labelStyle: appFont(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFF333B48)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFFFFD54F)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: contentCtrl,
-                maxLines: 4,
-                style: appFont(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Content',
-                  labelStyle: appFont(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFF333B48)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: const BorderSide(color: Color(0xFFFFD54F)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              StickyNoteBucketPicker(
-                initialBucket: selectedBucket,
-                onBucketChanged: (val) {
-                  selectedBucket = val;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: appFont(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFD54F),
-              foregroundColor: Colors.black,
+          title: Text(
+            'Edit Sticky Note',
+            style: appFont(
+              color: const Color(0xFFFFD54F),
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
             ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
-              await provider.addBucket(bucket);
-              await provider.fileThought(thought['id'], bucket);
-              await provider.updateThoughtTitle(thought['id'], titleCtrl.text.trim(),
-                  titleSource: 'user');
-              await provider.updateContent(thought['id'], contentCtrl.text.trim());
-            },
-            child: const Text('Save'),
           ),
-        ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  style: appFont(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    labelStyle: appFont(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF333B48)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contentCtrl,
+                  maxLines: 4,
+                  style: appFont(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Content',
+                    labelStyle: appFont(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF333B48)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFFFD54F)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                StickyNoteBucketPicker(
+                  initialBucket: selectedBucket,
+                  onBucketChanged: (val) {
+                    setDialogState(() => selectedBucket = val);
+                  },
+                ),
+                if (selectedBucket.toLowerCase() == 'raw') ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFFFFD54F),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                          icon: const Icon(Icons.event_outlined, size: 16),
+                          label: Text(
+                            dueDate == null
+                                ? 'Optional date'
+                                : 'Date: ${dueDate!.year}-${dueDate!.month.toString().padLeft(2, '0')}-${dueDate!.day.toString().padLeft(2, '0')}',
+                            style: appFont(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: dueDate ?? DateTime.now(),
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => dueDate = picked);
+                            }
+                          },
+                        ),
+                      ),
+                      if (dueDate != null)
+                        IconButton(
+                          tooltip: 'Clear date',
+                          icon: const Icon(Icons.close, size: 16),
+                          color: Colors.grey,
+                          onPressed: () => setDialogState(() => dueDate = null),
+                        ),
+                    ],
+                  ),
+                ],
+                if (selectedBucket.toLowerCase() == 'main' ||
+                    selectedBucket.toLowerCase() == 'sides') ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Repeats',
+                      style: appFont(color: Colors.grey, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final option in const ['daily', 'weekly', 'none'])
+                        ChoiceChip(
+                          label: Text(
+                            option == 'daily'
+                                ? 'Daily'
+                                : option == 'weekly'
+                                    ? 'Weekly'
+                                    : 'None',
+                          ),
+                          selected: (recurrence.isEmpty ? 'none' : recurrence) ==
+                              option,
+                          selectedColor: const Color(0xFFFFD54F),
+                          backgroundColor: const Color(0xFF262C38),
+                          labelStyle: appFont(
+                            color: (recurrence.isEmpty ? 'none' : recurrence) ==
+                                    option
+                                ? Colors.black
+                                : Colors.white,
+                            fontSize: 12,
+                          ),
+                          onSelected: (_) => setDialogState(
+                              () => recurrence = option == 'none' ? '' : option),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: appFont(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFD54F),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final bucket = selectedBucket.trim().isNotEmpty ? selectedBucket.trim() : 'Raw';
+                final isMainOrSides = bucket.toLowerCase() == 'main' ||
+                    bucket.toLowerCase() == 'sides';
+                await provider.addBucket(bucket);
+                await provider.fileThought(thought['id'], bucket);
+                await provider.updateThoughtTitle(thought['id'], titleCtrl.text.trim(),
+                    titleSource: 'user');
+                await provider.updateContent(thought['id'], contentCtrl.text.trim());
+                await provider.setDueDate(
+                    thought['id'], bucket.toLowerCase() == 'raw' ? dueDate : null);
+                await provider.setRecurrence(
+                    thought['id'],
+                    isMainOrSides
+                        ? (recurrence.isEmpty ? 'none' : recurrence)
+                        : null);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1606,7 +1868,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                     ),
                   ),
                   child: Text(
-                    '$pinnedCount / 8 pinned',
+                    '$pinnedCount / ${ThoughtProvider.maxBoardPins} pinned',
                     style: appFont(
                       color: const Color(0xFFFFD54F),
                       fontWeight: FontWeight.bold,
@@ -1754,7 +2016,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
 
             const SizedBox(height: 14),
 
-            // Sticky Note 4 x 2 Grid (Up to 8 notes)
+            // Sticky Note grid: slot 0 is the reserved Main card, then up to 7 pins
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
@@ -1780,20 +2042,30 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       crossAxisSpacing: spacing,
                       childAspectRatio: childAspectRatio > 0 ? childAspectRatio : 1.3,
                     ),
-                    itemCount: 8,
+                    itemCount: 1 + ThoughtProvider.maxBoardPins,
                     itemBuilder: (context, slotIndex) {
-                      if (slotIndex < pinnedCount) {
-                        final thought = pinned[slotIndex];
+                      if (slotIndex == 0) {
+                        return _buildMainBoardCard(
+                          context: context,
+                          cellWidth: cellWidth,
+                          cellHeight: cellHeight,
+                        );
+                      }
+
+                      final pinIndex = slotIndex - 1;
+
+                      if (pinIndex < pinnedCount) {
+                        final thought = pinned[pinIndex];
                         final isSelected = thought['id'] == _selectedThoughtId;
-                        final color = _getNoteColor(slotIndex);
+                        final color = _getNoteColor(pinIndex);
                         final rotationAngle =
-                            kStickyNoteRotations[slotIndex % kStickyNoteRotations.length];
+                            kStickyNoteRotations[pinIndex % kStickyNoteRotations.length];
 
                         return DragTarget<int>(
                           onAcceptWithDetails: (details) {
                             final fromIndex = details.data;
-                            if (fromIndex != slotIndex) {
-                              provider.reorderBoard(fromIndex, slotIndex);
+                            if (fromIndex != pinIndex) {
+                              provider.reorderBoard(fromIndex, pinIndex);
                             }
                           },
                           builder: (context, candidateData, rejectedData) {
@@ -1818,7 +2090,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   isSelected: isSelected,
                                   cellWidth: cellWidth,
                                   cellHeight: cellHeight,
-                                  slotIndex: slotIndex,
+                                  slotIndex: pinIndex,
                                   rotationAngle: rotationAngle,
                                 ),
                               ),
@@ -1826,8 +2098,8 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                           },
                         );
                       } else {
-                        // Empty Slots (Requirement 1: Show ONE empty "+" slot with no text, other slots are faint outlines)
-                        final isSingleAddSlot = slotIndex == pinnedCount;
+                        // Empty Slots (one "+" slot, other slots faint outlines)
+                        final isSingleAddSlot = pinIndex == pinnedCount;
 
                         // Check if we should suggest next best task from Sorted to pin into an emptied slot (Requirement 5)
                         final nextBest = (_lastFreedSlotIndex != null && isSingleAddSlot)
@@ -1841,7 +2113,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
 
                           return GestureDetector(
                             onTap: () async {
-                              final ok = await provider.pinToBoard(nextBest['id'], position: slotIndex);
+                              final ok = await provider.pinToBoard(nextBest['id'], position: pinIndex);
                               if (ok && mounted) {
                                 AppToast.show(context, message: 'Pinned "$nextTitle"');
                                 setState(() => _lastFreedSlotIndex = null);
@@ -1930,11 +2202,11 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             ),
 
             // Show pinned count as small text under the board ONLY if the board is full (Requirement 1)
-            if (pinnedCount >= 8) ...[
+            if (pinnedCount >= ThoughtProvider.maxBoardPins) ...[
               const SizedBox(height: 6),
               Center(
                 child: Text(
-                  'Board is full (8/8). Remove a note from the board first to add more.',
+                  'Board is full (${ThoughtProvider.maxBoardPins}/${ThoughtProvider.maxBoardPins}). Remove a note from the board first to add more.',
                   style: appFont(
                     color: const Color(0xFF9CA3AF),
                     fontSize: 11,
@@ -1975,6 +2247,325 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainBoardCard({
+    required BuildContext context,
+    required double cellWidth,
+    required double cellHeight,
+  }) {
+    final provider = context.watch<ThoughtProvider>();
+    final config = context.watch<SettingsService>();
+    final current = provider.getMainPinThought();
+    final total = provider.mainThoughts.length;
+    final done = provider.mainCompletedCount;
+    final allDone = provider.isAllMainDone;
+    final progress = total == 0 ? 0.0 : done / total;
+
+    return GestureDetector(
+      onLongPress: () => _showMainPinOptions(context),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF232936), Color(0xFF171B24)],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFFFFD54F).withValues(alpha: 0.55),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(2, 5),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.star_rounded, color: Color(0xFFFFD54F), size: 15),
+                const SizedBox(width: 4),
+                Text(
+                  'MAIN',
+                  style: appFont(
+                    color: const Color(0xFFFFD54F),
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                    fontSize: 11,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$done/$total',
+                  style: appFont(
+                    color: Colors.grey.shade400,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0.0, 1.0),
+                minHeight: 3,
+                backgroundColor: const Color(0xFF333B48),
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: allDone
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.check_circle_rounded,
+                              color: Color(0xFF4CAF50), size: 22),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Main complete',
+                            style: appFont(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : current == null
+                      ? Center(
+                          child: TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFFFFD54F),
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                            ),
+                            onPressed: () => _showCreateStickyNoteDialog(context,
+                                initialBucket: 'Main'),
+                            icon: const Icon(Icons.add, size: 15),
+                            label: Text(
+                              'Add Main task',
+                              style: appFont(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        )
+                      : GestureDetector(
+                          onTap: () => _showStickyNoteDetailPopup(
+                              context, current, const Color(0xFFFFF3C4)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (current['title'] as String?)?.isNotEmpty == true
+                                    ? current['title'] as String
+                                    : (current['content'] as String? ?? 'Untitled'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: appFont(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.15,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Expanded(
+                                child: Text(
+                                  current['content'] as String? ?? '',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: appFont(
+                                    color: Colors.grey.shade400,
+                                    fontSize: 9.5,
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+            ),
+            if (!allDone && current != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 24,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFD54F),
+                          foregroundColor: Colors.black,
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                        ),
+                        onPressed: () async {
+                          final id = current['id'] as String;
+                          final xp = await provider.markDone(id, true);
+                          SoundService.instance.play(SoundEvent.save, settings: config);
+                          if (context.mounted) {
+                            final summary = GamificationService.instance.getSummaryString();
+                            AppToast.show(
+                              context,
+                              message: xp > 0
+                                  ? 'Main done! +$xp XP ($summary)'
+                                  : 'Main task marked done',
+                            );
+                          }
+                        },
+                        child: Text(
+                          'Done',
+                          style: appFont(fontSize: 10, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 26,
+                    height: 24,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      iconSize: 14,
+                      tooltip: 'Reshuffle Main',
+                      icon: const Icon(Icons.shuffle, color: Color(0xFFFFD54F)),
+                      onPressed: () async {
+                        await provider.reshuffleMainPin();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMainPinOptions(BuildContext context) {
+    final provider = context.read<ThoughtProvider>();
+    final settings = context.read<SettingsService>();
+    final mains = provider.mainThoughts;
+    final currentId = settings.chosenMainPinId;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E222B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF333B48)),
+          ),
+          title: Text(
+            'Main card',
+            style: appFont(
+              color: const Color(0xFFFFD54F),
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.shuffle, color: Color(0xFFFFD54F)),
+                  title: Text('Shuffle daily',
+                      style: appFont(color: Colors.white, fontSize: 14)),
+                  subtitle: Text('Pick a different Main task each day',
+                      style: appFont(color: Colors.grey, fontSize: 12)),
+                  trailing: settings.mainPinMode == 'shuffle'
+                      ? const Icon(Icons.check, color: Color(0xFFFFD54F))
+                      : null,
+                  onTap: () async {
+                    await settings.setMainPinMode('shuffle');
+                    setState(() {});
+                  },
+                ),
+                const Divider(color: Color(0xFF333B48)),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.touch_app, color: Color(0xFFFFD54F)),
+                  title: Text('Choose a task',
+                      style: appFont(color: Colors.white, fontSize: 14)),
+                  subtitle: Text('Keep one specific Main task pinned',
+                      style: appFont(color: Colors.grey, fontSize: 12)),
+                  trailing: settings.mainPinMode == 'choose'
+                      ? const Icon(Icons.check, color: Color(0xFFFFD54F))
+                      : null,
+                  onTap: () async {
+                    await settings.setMainPinMode('choose');
+                    setState(() {});
+                  },
+                ),
+                if (settings.mainPinMode == 'choose') ...[
+                  const SizedBox(height: 8),
+                  if (mains.isEmpty)
+                    Text('No Main tasks yet.',
+                        style: appFont(color: Colors.grey, fontSize: 12))
+                  else
+                    ...mains.map((t) {
+                      final id = t['id'] as String;
+                      final isDone = (t['done'] as num?)?.toInt() == 1 ||
+                          t['status'] == 'completed';
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          currentId == id
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
+                          color: currentId == id
+                              ? const Color(0xFFFFD54F)
+                              : Colors.grey,
+                          size: 20,
+                        ),
+                        title: Text(
+                          (t['title'] as String?)?.isNotEmpty == true
+                              ? t['title'] as String
+                              : (t['content'] as String? ?? 'Untitled'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: appFont(
+                            color: isDone ? Colors.grey : Colors.white,
+                            fontSize: 13,
+                          ),
+                        ),
+                        onTap: () async {
+                          await settings.setChosenMainPinId(id);
+                          setState(() {});
+                        },
+                      );
+                    }),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Close', style: appFont(color: Colors.grey)),
             ),
           ],
         ),

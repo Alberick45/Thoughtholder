@@ -1,6 +1,6 @@
 ; ThoughtHolder Windows Inno Setup Script
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.0"
 #endif
 
 #define MyAppName "ThoughtHolder"
@@ -19,6 +19,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+UsePreviousAppDir=yes
 AllowNoIcons=yes
 OutputDir=..\..\build\windows\installer
 OutputBaseFilename=thoughtholder-setup-{#MyAppVersion}
@@ -48,7 +49,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 
 [UninstallDelete]
 ; Only delete files installed in {app}, NEVER delete user data in %APPDATA% or %LOCALAPPDATA%

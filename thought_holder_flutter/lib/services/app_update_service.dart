@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../background_recording_service.dart';
@@ -64,6 +65,40 @@ class AppInstalledVersion {
   });
 }
 
+enum UpdateCheckFailureKind { timeout, dns, http, badJson, network }
+
+class UpdateCheckException implements Exception {
+  final UpdateCheckFailureKind kind;
+  final String message;
+  final String manifestUrl;
+  final int? statusCode;
+
+  const UpdateCheckException({
+    required this.kind,
+    required this.message,
+    required this.manifestUrl,
+    this.statusCode,
+  });
+
+  String get userMessage {
+    switch (kind) {
+      case UpdateCheckFailureKind.timeout:
+        return 'Update check timed out contacting release server.';
+      case UpdateCheckFailureKind.dns:
+        return 'Could not resolve release server (DNS/network). Check your connection.';
+      case UpdateCheckFailureKind.http:
+        return 'Release server returned HTTP ${statusCode ?? 'error'} for version manifest.';
+      case UpdateCheckFailureKind.badJson:
+        return 'Release manifest was invalid or unreadable JSON.';
+      case UpdateCheckFailureKind.network:
+        return 'Network error while checking for updates.';
+    }
+  }
+
+  @override
+  String toString() => 'UpdateCheckException($kind, $message, url=$manifestUrl, status=$statusCode)';
+}
+
 class AppUpdateService extends ChangeNotifier {
   AppUpdateService._();
   static final AppUpdateService instance = AppUpdateService._();
@@ -87,6 +122,46 @@ class AppUpdateService extends ChangeNotifier {
   UpdateProgress get progress => _progress;
   VersionManifest? get latestManifest => _latestManifest;
 
+  static List<int> _parseSemVer(String version) {
+    var v = version.trim();
+    if (v.startsWith('v') || v.startsWith('V')) v = v.substring(1);
+    final core = v.split(RegExp(r'[-+]')).first;
+    final parts = core.split('.');
+    final nums = <int>[];
+    for (var i = 0; i < 3; i++) {
+      final raw = i < parts.length ? parts[i] : '0';
+      final match = RegExp(r'^\d+').firstMatch(raw);
+      nums.add(int.tryParse(match?.group(0) ?? '0') ?? 0);
+    }
+    return nums;
+  }
+
+  /// Returns positive if a>b, negative if a<b, 0 if equal (semver core only).
+  static int compareSemVer(String a, String b) {
+    final pa = _parseSemVer(a);
+    final pb = _parseSemVer(b);
+    for (var i = 0; i < 3; i++) {
+      if (pa[i] != pb[i]) return pa[i].compareTo(pb[i]);
+    }
+    return 0;
+  }
+
+  Future<void> _logUpdateCheck(String line) async {
+    final ts = DateTime.now().toIso8601String();
+    final msg = '[$ts] $line';
+    AppLogger.info('AppUpdateService', line);
+    try {
+      Directory dir;
+      try {
+        dir = await getApplicationSupportDirectory();
+      } catch (_) {
+        dir = await getTemporaryDirectory();
+      }
+      final file = File(p.join(dir.path, 'update-check.log'));
+      await file.writeAsString('$msg\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+
   /// Retrieves the running app version and build number.
   Future<AppInstalledVersion> getInstalledVersion() async {
     if (_cachedVersion != null) return _cachedVersion!;
@@ -94,16 +169,23 @@ class AppUpdateService extends ChangeNotifier {
     String vName = fallbackVersion;
     int bNum = fallbackBuild;
 
-    // Check Android native channel
-    if (!kIsWeb && Platform.isAndroid) {
-      try {
-        final res = await _updaterChannel.invokeMethod<Map>('getAppVersion');
-        if (res != null) {
-          vName = res['versionName'] as String? ?? fallbackVersion;
-          bNum = (res['versionCode'] as num?)?.toInt() ?? fallbackBuild;
-        }
-      } catch (e) {
-        AppLogger.info('AppUpdateService', 'Native Android version fetch: $e');
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final parsedName = info.version.trim();
+      final parsedBuild = int.tryParse(info.buildNumber.trim());
+      if (parsedName.isNotEmpty) vName = parsedName;
+      if (parsedBuild != null && parsedBuild > 0) bNum = parsedBuild;
+    } catch (e) {
+      AppLogger.info('AppUpdateService', 'PackageInfo version fetch: $e');
+      // Android fallback channel
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          final res = await _updaterChannel.invokeMethod<Map>('getAppVersion');
+          if (res != null) {
+            vName = res['versionName'] as String? ?? fallbackVersion;
+            bNum = (res['versionCode'] as num?)?.toInt() ?? fallbackBuild;
+          }
+        } catch (_) {}
       }
     }
 
@@ -117,6 +199,8 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   /// Fetches the latest release manifest from GitHub Releases.
+  /// Returns null only for automatic cooldown-suppressed checks (manual=false, checked <24h ago).
+  /// Throws [UpdateCheckException] for real failures (timeout, DNS, HTTP, bad JSON, network).
   Future<VersionManifest?> checkForUpdates({
     required SettingsService settings,
     bool manual = false,
@@ -127,8 +211,8 @@ class AppUpdateService extends ChangeNotifier {
       if (lastCheck != null) {
         final diff = DateTime.now().difference(lastCheck);
         if (diff.inHours < 24) {
-          AppLogger.info('AppUpdateService', 'Update check skipped (checked ${diff.inHours}h ago)');
-          return null;
+          await _logUpdateCheck('auto check skipped: cooldown (${diff.inHours}h ago)');
+          return null; // cooldown: automatic only
         }
       }
     }
@@ -137,43 +221,98 @@ class AppUpdateService extends ChangeNotifier {
         ? UpdateConfig.betaManifestUrl
         : UpdateConfig.stableManifestUrl;
 
-    try {
-      AppLogger.info('AppUpdateService', 'Fetching update manifest from $url');
-      final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-      await settings.setLastUpdateCheckTime(DateTime.now());
+    await _logUpdateCheck('manifest request: GET $url (manual=$manual)');
 
-      if (resp.statusCode == 200) {
-        final data = json.decode(resp.body) as Map<String, dynamic>;
-        _latestManifest = VersionManifest.fromJson(data);
-        return _latestManifest;
-      } else {
-        AppLogger.info('AppUpdateService', 'Update manifest returned HTTP ${resp.statusCode}');
-      }
+    http.Response resp;
+    try {
+      resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
+    } on TimeoutException catch (e) {
+      await _logUpdateCheck('manifest timeout: $url ($e)');
+      throw UpdateCheckException(
+        kind: UpdateCheckFailureKind.timeout,
+        message: e.toString(),
+        manifestUrl: url,
+      );
+    } on SocketException catch (e) {
+      final lower = e.toString().toLowerCase();
+      final kind = lower.contains('failed host lookup') || lower.contains('no such host')
+          ? UpdateCheckFailureKind.dns
+          : UpdateCheckFailureKind.network;
+      await _logUpdateCheck('manifest socket error ($kind): $url ($e)');
+      throw UpdateCheckException(
+        kind: kind,
+        message: e.toString(),
+        manifestUrl: url,
+      );
     } catch (e) {
-      AppLogger.error('AppUpdateService', 'Error checking for updates: $e');
-      if (manual) rethrow;
+      await _logUpdateCheck('manifest network error: $url ($e)');
+      throw UpdateCheckException(
+        kind: UpdateCheckFailureKind.network,
+        message: e.toString(),
+        manifestUrl: url,
+      );
     }
-    return null;
+
+    await settings.setLastUpdateCheckTime(DateTime.now());
+    await _logUpdateCheck('manifest response: HTTP ${resp.statusCode} from $url');
+
+    if (resp.statusCode != 200) {
+      throw UpdateCheckException(
+        kind: UpdateCheckFailureKind.http,
+        message: 'HTTP ${resp.statusCode}',
+        manifestUrl: url,
+        statusCode: resp.statusCode,
+      );
+    }
+
+    try {
+      final decoded = json.decode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('manifest root is not a JSON object');
+      }
+      final manifest = VersionManifest.fromJson(decoded);
+      if (manifest.version.trim().isEmpty) {
+        throw const FormatException('manifest version is empty');
+      }
+      _latestManifest = manifest;
+      return _latestManifest;
+    } catch (e) {
+      await _logUpdateCheck('manifest bad JSON: $url ($e)');
+      throw UpdateCheckException(
+        kind: UpdateCheckFailureKind.badJson,
+        message: e.toString(),
+        manifestUrl: url,
+      );
+    }
   }
 
   /// Evaluates whether an update is available and should be presented.
+  /// Semver is compared first (1.10.0 > 1.9.0); build number breaks ties for same version.
   Future<bool> isUpdateAvailable({
     required VersionManifest manifest,
     required SettingsService settings,
     bool ignoreSkipped = false,
   }) async {
     final installed = await getInstalledVersion();
-    if (manifest.build <= installed.buildNumber) {
-      return false;
-    }
 
-    // If update is required (below minSupportedBuild), cannot skip
+    // Required updates cannot be skipped
     if (installed.buildNumber < manifest.minSupportedBuild) {
       return true;
     }
 
-    if (!ignoreSkipped && settings.skippedBuild == manifest.build) {
-      return false;
+    final versionCmp = compareSemVer(manifest.version, installed.versionName);
+    final isNewer = versionCmp > 0 ||
+        (versionCmp == 0 && manifest.build > installed.buildNumber);
+    if (!isNewer) return false;
+
+    if (!ignoreSkipped) {
+      final skippedVersion = settings.skippedVersion?.trim() ?? '';
+      if (skippedVersion.isNotEmpty && skippedVersion == manifest.version.trim()) {
+        return false;
+      }
+      if (settings.skippedBuild == manifest.build) {
+        return false;
+      }
     }
 
     return true;
@@ -407,9 +546,17 @@ class AppUpdateService extends ChangeNotifier {
         await _updaterChannel.invokeMethod('installApk', {'filePath': downloadFile.path});
       } else if (Platform.isWindows) {
         // Windows silent install and close app
+        final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
+        final logPath = p.join(tempDir, 'thoughtholder-update.log');
         await Process.start(
           downloadFile.path,
-          ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS'],
+          [
+            '/SILENT',
+            '/SUPPRESSMSGBOXES',
+            '/CLOSEAPPLICATIONS',
+            '/RESTARTAPPLICATIONS',
+            '/LOG="$logPath"',
+          ],
           mode: ProcessStartMode.detached,
         );
         // Terminate app immediately so installer can replace binaries smoothly

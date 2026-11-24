@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import '../utils/app_logger.dart';
 import 'backup_service.dart';
@@ -19,14 +18,15 @@ class DatabaseMigrationService {
   DatabaseMigrationService._();
   static final DatabaseMigrationService instance = DatabaseMigrationService._();
 
-  static const int currentSchemaVersion = 4;
+  static const int currentSchemaVersion = 5;
   String? lastSafeBackupPath;
   String? migrationError;
 
   /// Runs database migrations with automatic pre-migration backup and transaction safety.
   /// If any migration step fails, the original database is restored from backup,
   /// preserving 100% of user data.
-  Future<void> runMigrations(Database db, String databaseFilePath) async {
+  Future<void> runMigrations(Database db, String databaseFilePath,
+      {String? backupDirectoryPath}) async {
     final res = await db.rawQuery('PRAGMA user_version');
     final int currentVersion = Sqflite.firstIntValue(res) ?? 0;
 
@@ -41,7 +41,8 @@ class DatabaseMigrationService {
     try {
       backup = await BackupService.instance.createBackup(
         db: db,
-        customFileName: 'pre_migration_v${currentVersion}_to_v${currentSchemaVersion}.db',
+        customFileName: 'pre_migration_v${currentVersion}_to_v$currentSchemaVersion.db',
+        customDirectoryPath: backupDirectoryPath,
       );
       lastSafeBackupPath = backup.filePath;
       AppLogger.info('DatabaseMigrationService', 'Pre-migration backup safe at: ${backup.filePath}');
@@ -65,7 +66,7 @@ class DatabaseMigrationService {
 
       // 3. Rollback safety: restore pre-migration backup
       try {
-        if (backup != null && File(backup.filePath).existsSync()) {
+        if (File(backup.filePath).existsSync()) {
           final backupBytes = await File(backup.filePath).readAsBytes();
           final targetFile = File(databaseFilePath);
           if (await targetFile.exists()) {
@@ -79,7 +80,7 @@ class DatabaseMigrationService {
 
       throw MigrationException(
         'Database migration failed. Original database has been safely restored.',
-        backupPath: backup?.filePath,
+        backupPath: backup.filePath,
         cause: e,
       );
     }
@@ -215,9 +216,72 @@ class DatabaseMigrationService {
         await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_is_pinned ON thoughts(is_pinned)');
         break;
 
+      case 5:
+        // Schema V5: Buckets Raw/Main/Sides + Recurrence & Completion tracking.
+        // Note: _onOpenDB may have already added these columns on older DBs, so
+        // every step here must be idempotent.
+        if (!await _hasColumn(db, 'buckets', 'type')) {
+          await db.execute("ALTER TABLE buckets ADD COLUMN type TEXT DEFAULT 'normal'");
+        }
+
+        if (!await _hasColumn(db, 'thoughts', 'recurrence')) {
+          await db.execute("ALTER TABLE thoughts ADD COLUMN recurrence TEXT");
+        }
+        if (!await _hasColumn(db, 'thoughts', 'last_completed_at')) {
+          await db.execute("ALTER TABLE thoughts ADD COLUMN last_completed_at INTEGER");
+        }
+        if (!await _hasColumn(db, 'thoughts', 'reminder_at')) {
+          await db.execute("ALTER TABLE thoughts ADD COLUMN reminder_at INTEGER");
+        }
+        if (!await _hasColumn(db, 'thoughts', 'due_at')) {
+          await db.execute("ALTER TABLE thoughts ADD COLUMN due_at INTEGER");
+        }
+
+        // 3. Seed Raw, Main, Sides system buckets
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final systemBuckets = [
+          {'name': 'Raw', 'type': 'raw', 'icon': 'inbox'},
+          {'name': 'Main', 'type': 'main', 'icon': 'star'},
+          {'name': 'Sides', 'type': 'sides', 'icon': 'list'},
+        ];
+
+        for (final sys in systemBuckets) {
+          final existing = await db.query(
+            'buckets',
+            where: 'LOWER(name) = ?',
+            whereArgs: [sys['name']!.toLowerCase()],
+          );
+          if (existing.isNotEmpty) {
+            await db.update(
+              'buckets',
+              {'type': sys['type']},
+              where: 'id = ?',
+              whereArgs: [existing.first['id']],
+            );
+          } else {
+            final id = 'bucket_${sys['name']!.toLowerCase()}';
+            await db.insert('buckets', {
+              'id': id,
+              'name': sys['name'],
+              'type': sys['type'],
+              'icon': sys['icon'],
+              'created_at': nowMs,
+              'updated_at': DateTime.now().toIso8601String(),
+              'updated_by': 'system',
+              'revision': 1,
+            });
+          }
+        }
+        break;
+
       default:
         break;
     }
+  }
+
+  Future<bool> _hasColumn(Database db, String table, String column) async {
+    final cols = await db.rawQuery('PRAGMA table_info($table)');
+    return cols.any((c) => c['name'] == column);
   }
 }
 

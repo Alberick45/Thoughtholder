@@ -1,8 +1,8 @@
-# What's New in Thoughtholder
+# What's New in Thoughtholder v1.4.0
 
-- Auto-updating pipeline for Android and Windows with SHA-256 verification
-- Automatic data snapshot and audio backup before updates
-- Sticky note board improvements and decluttered header
-- In-app update manager with progress bar and retry support
-- Database schema migration framework with rollback safety
-
+- Raw, Main, and Sides buckets, with quick capture and voice notes going to Raw by default
+- Reserved Main card on the sticky board with daily shuffle or a task you choose
+- Recurring Main and Sides tasks (daily, weekly, or none) with automatic resets
+- Optional due dates for Raw captures and inline sticky-note editing
+- More reliable in-app updates with semantic version checks, clearer network errors, and skip management
+- Safer database v5 migration with pre-migration backup and protected system buckets

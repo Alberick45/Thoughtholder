@@ -3,6 +3,7 @@ import 'database_helper.dart';
 import 'services/gamification_service.dart';
 import 'settings_service.dart';
 import 'sync_identity.dart';
+import 'utils/main_pin_selector.dart';
 import 'utils/title_generator.dart';
 
 class RankingEngine {
@@ -168,8 +169,88 @@ class ThoughtProvider with ChangeNotifier {
       }
       return m;
     }).toList();
+    await checkAndResetRecurrence();
     notifyListeners();
   }
+
+  /// Automatic reset for Main and Sides items based on recurrence (daily/weekly).
+  Future<int> checkAndResetRecurrence() async {
+    final now = DateTime.now();
+    final startOfTodayMs = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final startOfWeekMs = DateTime(monday.year, monday.month, monday.day).millisecondsSinceEpoch;
+
+    int resetCount = 0;
+    for (int i = 0; i < _thoughts.length; i++) {
+      final t = _thoughts[i];
+      final isTaskDone = (t['done'] as num?)?.toInt() == 1 || t['status'] == 'completed';
+      if (!isTaskDone) continue;
+
+      final recurrence = (t['recurrence'] as String?)?.toLowerCase();
+      final bucket = (t['bucket'] as String?)?.toLowerCase();
+      final effectiveRecurrence = recurrence ??
+          ((bucket == 'main' || bucket == 'sides') ? 'daily' : null);
+      if (effectiveRecurrence == null) continue;
+
+      final lastCompleted = (t['last_completed_at'] as num?)?.toInt() ??
+          (t['done_at'] as num?)?.toInt() ??
+          0;
+
+      bool shouldReset = false;
+      if (effectiveRecurrence == 'daily' && lastCompleted < startOfTodayMs) {
+        shouldReset = true;
+      } else if (effectiveRecurrence == 'weekly' && lastCompleted < startOfWeekMs) {
+        shouldReset = true;
+      }
+
+      if (shouldReset) {
+        await DatabaseHelper.instance.updateThoughtDone(t['id'] as String, false);
+        _thoughts[i]['done'] = 0;
+        _thoughts[i]['status'] = 'active';
+        _thoughts[i]['done_at'] = null;
+        resetCount++;
+      }
+    }
+    return resetCount;
+  }
+
+  // --- Main, Sides, and Raw Getters & Progress ---
+
+  List<Map<String, dynamic>> get mainThoughts => _thoughts
+      .where((t) =>
+          (t['bucket'] ?? '').toString().trim().toLowerCase() == 'main' &&
+          (t['trashed'] as num?)?.toInt() != 1 &&
+          t['status'] != 'vaulted_trash')
+      .toList();
+
+  List<Map<String, dynamic>> get sidesThoughts => _thoughts
+      .where((t) =>
+          (t['bucket'] ?? '').toString().trim().toLowerCase() == 'sides' &&
+          (t['trashed'] as num?)?.toInt() != 1 &&
+          t['status'] != 'vaulted_trash')
+      .toList();
+
+  List<Map<String, dynamic>> get rawThoughts => _thoughts
+      .where((t) =>
+          (t['bucket'] ?? '').toString().trim().toLowerCase() == 'raw' &&
+          (t['trashed'] as num?)?.toInt() != 1 &&
+          t['status'] != 'vaulted_trash')
+      .toList();
+
+  int get mainCompletedCount =>
+      mainThoughts.where((t) => (t['done'] as num?)?.toInt() == 1 || t['status'] == 'completed').length;
+
+  int get sidesCompletedCount =>
+      sidesThoughts.where((t) => (t['done'] as num?)?.toInt() == 1 || t['status'] == 'completed').length;
+
+  bool get isAllMainDone =>
+      mainThoughts.isNotEmpty && mainCompletedCount == mainThoughts.length;
+
+  String get mainProgressString =>
+      "${mainCompletedCount}/${mainThoughts.length} Main done today";
+
+  String get sidesProgressString =>
+      "${sidesCompletedCount}/${sidesThoughts.length} Sides done";
 
   Future<void> loadBuckets() async {
     _buckets = await DatabaseHelper.instance.fetchBuckets();
@@ -313,10 +394,16 @@ class ThoughtProvider with ChangeNotifier {
     String type, {
     String tags = '',
     String? bucket,
+    String? recurrence,
+    int? reminderAt,
+    int? dueAt,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
     final id = SyncIdentity.newUuid();
+
+    // Quick capture: no required fields, default if empty
+    final effectiveContent = content.trim().isEmpty ? 'Quick Note' : content.trim();
 
     String? bucketId;
     if (bucket != null && bucket.trim().isNotEmpty) {
@@ -329,11 +416,11 @@ class ThoughtProvider with ChangeNotifier {
       }
     }
 
-    final autoTitle = TitleGenerator.generate(content);
+    final autoTitle = TitleGenerator.generate(effectiveContent);
     final thought = {
       'id': id,
       'thought_id': 'LOG-${now % 10000}',
-      'content': content,
+      'content': effectiveContent,
       'title': autoTitle,
       'title_source': 'auto',
       'type': type,
@@ -355,12 +442,33 @@ class ThoughtProvider with ChangeNotifier {
       'updated_at': Hlc.now(deviceId).toString(),
       'updated_by': deviceId,
       'revision': 1,
+      'recurrence': recurrence,
+      'last_completed_at': null,
+      'reminder_at': reminderAt,
+      'due_at': dueAt,
     };
 
     _sessionSkippedIds.remove(thought['id']);
     await DatabaseHelper.instance.insertThought(thought, deviceId: deviceId);
     await loadThoughts();
     return thought;
+  }
+
+  Future<void> setDueDate(String id, DateTime? due) async {
+    await DatabaseHelper.instance
+        .updateThoughtDueAt(id, due?.millisecondsSinceEpoch);
+    await loadThoughts();
+  }
+
+  Future<void> setRecurrence(String id, String? recurrence) async {
+    await DatabaseHelper.instance.updateThoughtRecurrence(id, recurrence);
+    await loadThoughts();
+  }
+
+  Future<void> setReminder(String id, DateTime? reminder) async {
+    await DatabaseHelper.instance
+        .updateThoughtReminder(id, reminder?.millisecondsSinceEpoch);
+    await loadThoughts();
   }
 
   Future<void> updateThoughtTitle(String id, String title,
@@ -392,7 +500,14 @@ class ThoughtProvider with ChangeNotifier {
 
   Future<void> fileThought(String id, String bucket) async {
     _sessionSkippedIds.remove(id);
+    final lower = bucket.trim().toLowerCase();
     await DatabaseHelper.instance.updateThoughtBucket(id, bucket);
+    if (lower != 'main' && lower != 'sides') {
+      await DatabaseHelper.instance.updateThoughtRecurrence(id, null);
+    }
+    if (lower != 'raw') {
+      await DatabaseHelper.instance.updateThoughtDueAt(id, null);
+    }
     await loadThoughts();
   }
 
@@ -463,6 +578,10 @@ class ThoughtProvider with ChangeNotifier {
     if (done && wasPinned && thoughtData != null) {
       xpEarned = await GamificationService.instance.onPinnedTaskCompleted(thoughtData);
     }
+    if (done && isAllMainDone) {
+      final bonus = await GamificationService.instance.onMainGoalCompleted();
+      xpEarned += bonus;
+    }
     return xpEarned;
   }
 
@@ -511,6 +630,10 @@ class ThoughtProvider with ChangeNotifier {
   }
 
   Future<void> renameBucket(String oldName, String newName) async {
+    final lower = oldName.trim().toLowerCase();
+    if (lower == 'raw' || lower == 'main' || lower == 'sides') {
+      return; // Protected system bucket
+    }
     final trimmed = newName.trim();
     if (trimmed.isEmpty) return;
     await DatabaseHelper.instance.renameBucket(oldName, trimmed);
@@ -523,9 +646,54 @@ class ThoughtProvider with ChangeNotifier {
   }
 
   Future<int> deleteBucket(String name) async {
+    final lower = name.trim().toLowerCase();
+    if (lower == 'raw' || lower == 'main' || lower == 'sides') {
+      return 0; // Protected system bucket
+    }
     final unfiledCount = await DatabaseHelper.instance.deleteBucket(name);
     await loadAll();
     return unfiledCount;
+  }
+
+  /// Promote / move an item to Main, Sides, or any bucket.
+  Future<void> moveToBucket(String thoughtId, String targetBucket) async {
+    await addBucket(targetBucket);
+    await fileThought(thoughtId, targetBucket);
+  }
+
+  // --- Main Pin Functionality (Reserve 1 Pin on Board) ---
+
+  /// Retrieves the current Main item to pin on the board.
+  /// In 'choose' mode: picks the user-selected Main item (or first incomplete).
+  /// In 'shuffle' mode: picks only incomplete Main items, stores the pick for today so it is stable per launch.
+  /// When item is completed, advances to next incomplete; when all are done, returns null ("Main complete").
+  Map<String, dynamic>? getMainPinThought() {
+    final now = DateTime.now();
+    final todayStr = "${now.year}-${now.month}-${now.day}";
+    return MainPinSelector.pick(
+      mainThoughts: mainThoughts,
+      mode: _settings?.mainPinMode ?? MainPinSelector.modeShuffle,
+      chosenId: _settings?.chosenMainPinId,
+      savedDate: _settings?.dailyShufflePickDate,
+      savedId: _settings?.dailyShufflePickId,
+      today: todayStr,
+      now: now,
+    );
+  }
+
+  /// Manual reshuffle button to pick a different incomplete Main item.
+  Future<void> reshuffleMainPin() async {
+    final currentId = getMainPinThought()?['id'] as String?;
+    final pick = MainPinSelector.reshuffle(
+      mainThoughts: mainThoughts,
+      currentId: currentId,
+    );
+    if (pick == null) return;
+
+    final now = DateTime.now();
+    final todayStr = "${now.year}-${now.month}-${now.day}";
+    await _settings?.setDailyShufflePick(todayStr, pick['id'] as String);
+    notifyListeners();
   }
 
   // --- LOG-149 Split Helper ---
@@ -595,6 +763,9 @@ class ThoughtProvider with ChangeNotifier {
       !isDone(t) &&
       !isTrashed(t);
 
+  /// Maximum regular sticky-note cards. Slot 0 of the board is reserved for Main.
+  static const int maxBoardPins = 7;
+
   List<Map<String, dynamic>> get pinnedThoughts {
     final list = _thoughts.where(isPinned).toList();
     list.sort((a, b) {
@@ -605,14 +776,14 @@ class ThoughtProvider with ChangeNotifier {
       final pinAtB = (b['pinned_at'] as num?)?.toInt() ?? 0;
       return pinAtA.compareTo(pinAtB);
     });
-    if (list.length > 8) {
-      return list.sublist(0, 8);
+    if (list.length > maxBoardPins) {
+      return list.sublist(0, maxBoardPins);
     }
     return list;
   }
 
   int get pinnedCount => pinnedThoughts.length;
-  bool get isBoardFull => pinnedCount >= 8;
+  bool get isBoardFull => pinnedCount >= maxBoardPins;
 
   Future<bool> pinToBoard(String id, {int? position}) async {
     final existing = _thoughts.firstWhere((t) => t['id'] == id, orElse: () => {});
@@ -622,12 +793,12 @@ class ThoughtProvider with ChangeNotifier {
 
     final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
     int targetSlot = position ?? -1;
-    if (targetSlot < 0 || targetSlot >= 8) {
+    if (targetSlot < 0 || targetSlot >= maxBoardPins) {
       final occupied = pinnedThoughts
           .map((t) => (t['board_position'] as num?)?.toInt() ?? -1)
-          .where((p) => p >= 0 && p < 8)
+          .where((p) => p >= 0 && p < maxBoardPins)
           .toSet();
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < maxBoardPins; i++) {
         if (!occupied.contains(i)) {
           targetSlot = i;
           break;

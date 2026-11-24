@@ -271,6 +271,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 showModalBottomSheet(
                   context: context,
                   isScrollControlled: true,
+                  isDismissible: !isReq,
+                  enableDrag: !isReq,
                   backgroundColor: Colors.transparent,
                   builder: (sheetCtx) => UpdateAvailableSheet(
                     manifest: manifest,

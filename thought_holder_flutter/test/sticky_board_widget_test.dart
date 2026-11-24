@@ -13,14 +13,23 @@ import 'package:thought_holder_flutter/services/gamification_service.dart';
 
 class FakeThoughtProvider extends ThoughtProvider {
   final List<Map<String, dynamic>> _mockThoughts = [];
+  final List<Map<String, dynamic>> _mockMainThoughts = [];
 
   void addMockThought(Map<String, dynamic> t) {
     _mockThoughts.add(t);
     notifyListeners();
   }
 
+  void addMockMainThought(Map<String, dynamic> t) {
+    _mockMainThoughts.add(t);
+    notifyListeners();
+  }
+
   @override
   List<Map<String, dynamic>> get thoughts => _mockThoughts;
+
+  @override
+  List<Map<String, dynamic>> get mainThoughts => _mockMainThoughts;
 
   @override
   List<Map<String, dynamic>> get pinnedThoughts =>
@@ -137,6 +146,46 @@ void main() {
     await tester.tap(find.textContaining('Sort: View all thoughts'));
     await tester.pump();
     expect(sortedClicked, isTrue);
+  });
+
+  testWidgets('Main card renders the reserved slot with the current Main task', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final fakeProvider = FakeThoughtProvider();
+    fakeProvider.addMockMainThought({
+      'id': 'main-1',
+      'title': 'Ship Release 2',
+      'content': 'Finish verification and tag v1.4.0',
+      'bucket': 'Main',
+      'done': 0,
+      'status': 'active',
+    });
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ThoughtProvider>.value(value: fakeProvider),
+          ChangeNotifierProvider<SettingsService>.value(value: settingsService),
+          ChangeNotifierProvider<SoundService>.value(value: SoundService.instance),
+          ChangeNotifierProvider<GamificationService>.value(value: GamificationService.instance),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: StickyNoteBoard(
+              isExpandedView: true,
+              onOpenSorted: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('MAIN'), findsOneWidget);
+    expect(find.text('Ship Release 2'), findsOneWidget);
+    expect(find.text('0/1'), findsOneWidget);
   });
 
   testWidgets('Tapping a sticky note opens expanded popup with full actions', (tester) async {
