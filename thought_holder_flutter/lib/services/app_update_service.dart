@@ -336,12 +336,13 @@ class AppUpdateService extends ChangeNotifier {
     String? message;
 
     if (pendingVersion != null && pendingVersion.isNotEmpty) {
-      final pending = '$pendingVersion+${pendingBuild ?? ''}';
       final changed = seen != null && seen != current;
       if (changed || installed.versionName == pendingVersion) {
         message = 'Updated to v${installed.versionName}';
+        await _appendWindowsUpdateLog('Post-update: success. installed=$current pending=$pendingVersion+${pendingBuild ?? ''}');
       } else {
         message = 'Update did not install. See log';
+        await _appendWindowsUpdateLog('Post-update: version unchanged. installed=$current pending=$pendingVersion+${pendingBuild ?? ''} seen=$seen');
       }
       await box.delete(_pendingUpdateTargetVersionKey);
       await box.delete(_pendingUpdateTargetBuildKey);
@@ -354,6 +355,20 @@ class AppUpdateService extends ChangeNotifier {
   String get windowsUpdateLogPath {
     final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
     return p.join(tempDir, 'thoughtholder-update.log');
+  }
+
+  String get windowsInstallerLogPath {
+    final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
+    return p.join(tempDir, 'thoughtholder-installer.log');
+  }
+
+  Future<void> _appendWindowsUpdateLog(String line) async {
+    try {
+      final ts = DateTime.now().toIso8601String();
+      final file = File(windowsUpdateLogPath);
+      await file.writeAsString('[$ts] $line\n', mode: FileMode.append, flush: true);
+      AppLogger.info('AppUpdateService', line);
+    } catch (_) {}
   }
 
   /// Evaluates whether an update is available and should be presented.
@@ -435,7 +450,7 @@ class AppUpdateService extends ChangeNotifier {
     // STEP 2: Backup
     _progress = const UpdateProgress(
       stage: UpdateStage.backingUp,
-      statusMessage: 'Backing up thoughts and voice recordings…',
+      statusMessage: 'Backing up thoughts and voice recordings...',
     );
     notifyListeners();
 
@@ -618,29 +633,36 @@ class AppUpdateService extends ChangeNotifier {
         }
         await _updaterChannel.invokeMethod('installApk', {'filePath': downloadFile.path});
       } else if (Platform.isWindows) {
-        final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
-        final logPath = p.join(tempDir, 'thoughtholder-update.log');
-        await Process.start(
-          downloadFile.path,
-          [
-            '/SILENT',
-            '/SUPPRESSMSGBOXES',
-            '/CLOSEAPPLICATIONS',
-            '/RESTARTAPPLICATIONS',
-            '/LOG="$logPath"',
-          ],
+        final installerLog = windowsInstallerLogPath;
+        final args = [
+          '/SILENT',
+          '/SUPPRESSMSGBOXES',
+          '/CLOSEAPPLICATIONS',
+          '/RESTARTAPPLICATIONS',
+          '/LOG="$installerLog"',
+        ];
+        await _appendWindowsUpdateLog('Launching installer: ${downloadFile.path}');
+        await _appendWindowsUpdateLog('Installer args: ${args.join(' ')}');
+        await _appendWindowsUpdateLog('Installer log: $installerLog');
+
+        final launched = await Process.start(
+          'cmd',
+          ['/c', 'start', '', downloadFile.path, ...args],
           mode: ProcessStartMode.detached,
         );
+        await _appendWindowsUpdateLog('Detached launcher started: pid=${launched.pid}');
         await Future.delayed(const Duration(seconds: 2));
+        await _appendWindowsUpdateLog('Exiting app for installer handoff');
         exit(0);
       }
-    } catch (e) {
+    } catch (e, st) {
+      await _appendWindowsUpdateLog('Install launch failed: $e\n$st');
       AppLogger.error('AppUpdateService', 'Install launch failed: $e');
       _progress = UpdateProgress(
         stage: UpdateStage.failed,
         statusMessage: 'Install failed',
         backupSummary: backupSummary,
-        errorMessage: 'Could not launch installer: $e',
+        errorMessage: 'Could not launch installer: $e\nLog: ${windowsUpdateLogPath}',
       );
       notifyListeners();
     }

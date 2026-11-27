@@ -17,7 +17,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={userpf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 UsePreviousAppDir=yes
 AllowNoIcons=yes
@@ -29,6 +29,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=yes
+PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 
 [Languages]
@@ -56,3 +57,52 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait runascurrentuser
 ; Only delete files installed in {app}, NEVER delete user data in %APPDATA% or %LOCALAPPDATA%
 Type: filesandordirs; Name: "{app}"
 
+[Code]
+function GetOldMachineInstallPath(out OldPath: String): Boolean;
+var
+  UninstallKey1: String;
+  UninstallKey2: String;
+begin
+  Result := False;
+  OldPath := '';
+  UninstallKey1 := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E68A91DC-6091-4D02-86FD-A8643194B4D8}_is1';
+  UninstallKey2 := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{E68A91DC-6091-4D02-86FD-A8643194B4D8}_is1';
+
+  if RegQueryStringValue(HKLM, UninstallKey1, 'InstallLocation', OldPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if RegQueryStringValue(HKLM, UninstallKey2, 'InstallLocation', OldPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if RegQueryStringValue(HKLM64, UninstallKey1, 'InstallLocation', OldPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if RegQueryStringValue(HKLM64, UninstallKey2, 'InstallLocation', OldPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  OldPath: String;
+  Msg: String;
+begin
+  Result := True;
+  if GetOldMachineInstallPath(OldPath) then
+  begin
+    if OldPath = '' then
+      OldPath := '(unknown location)';
+    Msg := 'An older all-users install of ThoughtHolder was found at ' + OldPath + '.' + #13#10 + #13#10 +
+      'Uninstall it from Settings > Apps after this setup finishes, to avoid two copies. ' +
+      'Your thoughts are not affected.';
+    MsgBox(Msg, mbInformation, MB_OK);
+  end;
+end;
