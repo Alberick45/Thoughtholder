@@ -32,6 +32,7 @@ import 'services/self_check_service.dart';
 import 'settings/diagnostics_screen.dart';
 import 'widgets/swipe_tabs.dart';
 import 'services/app_update_service.dart';
+import 'services/backup_service.dart';
 import 'services/database_migration_service.dart';
 import 'widgets/migration_failure_screen.dart';
 import 'widgets/update_sheets.dart';
@@ -188,6 +189,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         }
       }
 
+      await _maybeOfferRawDefaultRecovery(provider, settings);
+
       // Startup self-check: fast, non-blocking, completely silent when everything is fine
       Future.delayed(const Duration(milliseconds: 300), () async {
         if (!mounted) return;
@@ -343,6 +346,109 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void _handleWidgetUri(Uri? uri) {
     // UPDATE 5 - Section A: Every entry point opens Capture in idle state, never records.
     context.read<NavigationNotifier>().goToCapture();
+  }
+
+  Future<void> _maybeOfferRawDefaultRecovery(
+    ThoughtProvider provider,
+    SettingsService settings,
+  ) async {
+    if (!mounted || settings.hasOfferedRawDefaultRecovery) return;
+    final cutoff = DateTime.utc(2026, 11, 23, 1, 24, 31).millisecondsSinceEpoch;
+    final candidates =
+        await provider.fetchRawDefaultRecoveryCandidates(cutoff);
+    await settings.setHasOfferedRawDefaultRecovery(true);
+    if (!mounted || candidates.isEmpty) return;
+
+    final count = candidates.length;
+    final selectedIds = <String>{...candidates.map((e) => e['id'].toString())};
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Move recent Raw items back to Unsorted?'),
+          content: SizedBox(
+            width: 560,
+            height: 420,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$count recent thought${count == 1 ? '' : 's'} landed in Raw because Raw was the default capture bucket. '
+                  'Untick any you filed in Raw on purpose. Done items are excluded.',
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: candidates.length,
+                    itemBuilder: (_, i) {
+                      final t = candidates[i];
+                      final id = t['id'].toString();
+                      final raw = (t['content'] ?? t['title'] ?? '').toString().trim();
+                      final text = raw.isEmpty ? '(untitled)' : raw;
+                      final checked = selectedIds.contains(id);
+                      return CheckboxListTile(
+                        value: checked,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          text.length > 110 ? '${text.substring(0, 110)}...' : text,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onChanged: (v) {
+                          setDialogState(() {
+                            if (v == true) {
+                              selectedIds.add(id);
+                            } else {
+                              selectedIds.remove(id);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'A backup will be created before moving. Raw remains a normal bucket.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep in Raw'),
+            ),
+            FilledButton(
+              onPressed: selectedIds.isEmpty ? null : () => Navigator.pop(ctx, true),
+              child: Text('Move ${selectedIds.length} to Unsorted'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    try {
+      await BackupService.instance.createBackup(
+        customFileName:
+            'pre_raw_recovery_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+      final moved = await provider.moveRawThoughtsToUnsorted(selectedIds.toList());
+      if (!mounted) return;
+      GlobalErrorHandler.messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('Moved $moved item${moved == 1 ? '' : 's'} to Unsorted. Backup created.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      GlobalErrorHandler.messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('Could not move Raw items: $e')),
+      );
+    }
   }
 
   @override

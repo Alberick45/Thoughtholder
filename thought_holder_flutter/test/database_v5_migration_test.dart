@@ -70,7 +70,7 @@ void main() {
         .runMigrations(db, dbPath, backupDirectoryPath: backupDir);
 
     var versionRows = await db.rawQuery('PRAGMA user_version');
-    expect(versionRows.first.values.first, 5);
+    expect(versionRows.first.values.first, 6);
 
     final thoughtCols = (await db.rawQuery('PRAGMA table_info(thoughts)'))
         .map((r) => r['name'])
@@ -85,13 +85,18 @@ void main() {
     final names = buckets.map((b) => (b['name'] as String).toLowerCase()).toSet();
     expect(names, containsAll(<String>['raw', 'main', 'sides']));
 
-    // Re-run case 5 by rewinding only user_version; columns already exist.
+    final coinCols = (await db.rawQuery("PRAGMA table_info(coin_ledger)"))
+        .map((r) => r['name'])
+        .toSet();
+    expect(coinCols, containsAll(<String>{'id','delta','reason','ref_id','created_at'}));
+
+    // Re-run by rewinding user_version; v5/v6 must be idempotent.
     await db.execute('PRAGMA user_version = 4');
     await DatabaseMigrationService.instance
         .runMigrations(db, dbPath, backupDirectoryPath: backupDir);
 
     versionRows = await db.rawQuery('PRAGMA user_version');
-    expect(versionRows.first.values.first, 5);
+    expect(versionRows.first.values.first, 6);
 
     await db.close();
     await tempDir.delete(recursive: true);

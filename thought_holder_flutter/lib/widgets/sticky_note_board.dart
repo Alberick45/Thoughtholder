@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_theme.dart';
 import '../services/gamification_service.dart';
+import '../services/reward_feedback_service.dart';
 import '../settings_service.dart';
 import '../sound_service.dart';
 import '../thought_provider.dart';
@@ -314,10 +315,16 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
     switch (selected) {
       case 'done':
         setState(() => _peelingThoughtId = id);
-        await Future.delayed(const Duration(milliseconds: 260));
+        final reduce = settings.reduceAnimations || (MediaQuery.maybeOf(context)?.disableAnimations ?? false);
+        await Future.delayed(Duration(milliseconds: reduce ? 0 : 260));
         final xp = await provider.markDone(id, true);
-        SoundService.instance.play(SoundEvent.save, settings: settings);
         if (mounted) {
+          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
+          final reward = GamificationService.instance.consumePendingRewardEvent();
+          if (reward != null) {
+            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
+            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+          }
           final summary = GamificationService.instance.getSummaryString();
           AppToast.show(
             context,
@@ -1159,7 +1166,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Header with Level & Streak
+                  // Header with Level, Coins & Streak
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1180,13 +1187,21 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Text(
-                            '${gamification.totalXp} XP',
-                            style: appFont(
-                              color: const Color(0xFFFFD54F),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF13151D),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFF333B48)),
+                            ),
+                            child: Text(
+                              '${gamification.coinBalance} coins',
+                              style: appFont(
+                                color: const Color(0xFFFFD54F),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],
@@ -1200,7 +1215,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         ),
                         child: Row(
                           children: [
-                            const Text('🔥 ', style: TextStyle(fontSize: 13)),
+                            const Text('?? ', style: TextStyle(fontSize: 13)),
                             Text(
                               '${gamification.streak} day streak',
                               style: appFont(
@@ -1213,6 +1228,11 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${gamification.totalXp} XP total',
+                    style: appFont(color: const Color(0xFF9CA3AF), fontSize: 12),
                   ),
 
                   const SizedBox(height: 16),

@@ -757,6 +757,38 @@ class SettingsRegistry {
           );
         },
       ),
+      SettingEntry(
+        id: 'haptics_enabled',
+        title: 'Haptics',
+        description: 'Light vibration for key actions and celebrations',
+        group: 'Sounds',
+        keywords: ['haptics', 'vibration', 'feel', 'touch', 'celebration'],
+        builder: (context, settings, colors) {
+          return SettingsSwitchRow(
+            title: 'Haptics',
+            subtitle: 'Light vibration for key actions and celebrations',
+            value: settings.hapticsEnabled,
+            onChanged: (v) => settings.setHapticsEnabled(v),
+            colors: colors,
+          );
+        },
+      ),
+      SettingEntry(
+        id: 'reduce_animations',
+        title: 'Reduce animations',
+        description: 'Use simpler transitions and celebrations',
+        group: 'Sounds',
+        keywords: ['animations', 'motion', 'reduce', 'accessibility', 'celebration'],
+        builder: (context, settings, colors) {
+          return SettingsSwitchRow(
+            title: 'Reduce animations',
+            subtitle: 'Use simpler transitions and celebrations',
+            value: settings.reduceAnimations,
+            onChanged: (v) => settings.setReduceAnimations(v),
+            colors: colors,
+          );
+        },
+      ),
 
       // ==========================================
       // GROUP 5: Notifications

@@ -517,6 +517,27 @@ class ThoughtProvider with ChangeNotifier {
     await loadThoughts();
   }
 
+  Future<List<Map<String, dynamic>>> fetchRawDefaultRecoveryCandidates(
+    int sinceCreatedAtMs,
+  ) async {
+    return DatabaseHelper.instance.fetchRawDefaultRecoveryCandidates(
+      sinceCreatedAtMs: sinceCreatedAtMs,
+    );
+  }
+
+  Future<int> moveRawThoughtsToUnsorted(List<String> ids) async {
+    if (ids.isEmpty) return 0;
+    final deviceId = _settings != null
+        ? SyncIdentity.getDeviceId(_settings!)
+        : DatabaseHelper.currentDeviceId;
+    final count = await DatabaseHelper.instance.moveRawThoughtsToUnsorted(
+      ids,
+      deviceId: deviceId,
+    );
+    await loadThoughts();
+    return count;
+  }
+
   Future<void> cycleWhen(String id) async {
     final index = _thoughts.indexWhere((t) => t['id'] == id);
     if (index == -1) return;
@@ -565,8 +586,10 @@ class ThoughtProvider with ChangeNotifier {
 
   Future<int> markDone(String id, bool done) async {
     final tIndex = _thoughts.indexWhere((t) => t['id'] == id);
-    final wasPinned = tIndex != -1 && ((_thoughts[tIndex]['is_pinned'] as int? ?? 0) == 1);
-    final thoughtData = tIndex != -1 ? Map<String, dynamic>.from(_thoughts[tIndex]) : null;
+    final wasPinned =
+        tIndex != -1 && ((_thoughts[tIndex]['is_pinned'] as int? ?? 0) == 1);
+    final thoughtData =
+        tIndex != -1 ? Map<String, dynamic>.from(_thoughts[tIndex]) : null;
 
     await DatabaseHelper.instance.updateThoughtDone(id, done);
     if (done && wasPinned) {
@@ -575,12 +598,33 @@ class ThoughtProvider with ChangeNotifier {
     await loadThoughts();
 
     int xpEarned = 0;
+    RewardEvent? rewardEvent;
     if (done && wasPinned && thoughtData != null) {
-      xpEarned = await GamificationService.instance.onPinnedTaskCompleted(thoughtData);
+      rewardEvent = await GamificationService.instance
+          .onPinnedTaskCompletedDetailed(thoughtData);
+      xpEarned += rewardEvent.xpEarned;
     }
     if (done && isAllMainDone) {
-      final bonus = await GamificationService.instance.onMainGoalCompleted();
-      xpEarned += bonus;
+      final mainEvent =
+          await GamificationService.instance.onMainGoalCompletedDetailed();
+      xpEarned += mainEvent.xpEarned;
+      if (mainEvent.xpEarned > 0 ||
+          mainEvent.coinsEarned > 0 ||
+          mainEvent.dailyGoalReached ||
+          mainEvent.leveledUp) {
+        rewardEvent = RewardEvent(
+          xpEarned: (rewardEvent?.xpEarned ?? 0) + mainEvent.xpEarned,
+          coinsEarned: (rewardEvent?.coinsEarned ?? 0) + mainEvent.coinsEarned,
+          dailyGoalReached:
+              (rewardEvent?.dailyGoalReached ?? false) || mainEvent.dailyGoalReached,
+          leveledUp: (rewardEvent?.leveledUp ?? false) || mainEvent.leveledUp,
+          level: mainEvent.level,
+          unlockName: mainEvent.unlockName ?? rewardEvent?.unlockName,
+        );
+      }
+    }
+    if (rewardEvent != null && (xpEarned > 0 || rewardEvent.coinsEarned > 0)) {
+      GamificationService.instance.queueRewardEvent(rewardEvent);
     }
     return xpEarned;
   }

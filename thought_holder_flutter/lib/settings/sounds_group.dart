@@ -191,6 +191,28 @@ class _SoundsGroupContentState extends State<SoundsGroupContent> {
           ),
 
           // 4. Collapsible Group switches (under "Show more options")
+          SettingsSwitchRow(
+            title: 'Haptics',
+            subtitle: 'Light vibration for key actions and celebrations',
+            value: settings.hapticsEnabled,
+            onChanged: (val) async {
+              await settings.setHapticsEnabled(val);
+              if (mounted) setState(() {});
+            },
+            colors: colors,
+          ),
+          const SizedBox(height: 8),
+          SettingsSwitchRow(
+            title: 'Reduce animations',
+            subtitle: 'Use simpler transitions and celebrations',
+            value: settings.reduceAnimations,
+            onChanged: (val) async {
+              await settings.setReduceAnimations(val);
+              if (mounted) setState(() {});
+            },
+            colors: colors,
+          ),
+
           if (isExpanded) ...[
             const SizedBox(height: 20),
             Divider(color: colors.line, height: 1),

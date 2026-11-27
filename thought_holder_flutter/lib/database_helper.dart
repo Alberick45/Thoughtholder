@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -94,10 +95,10 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await _createDB(db, version);
-        await db.execute('PRAGMA user_version = 5');
+        await db.execute('PRAGMA user_version = 6');
       },
       onOpen: (db) async {
         await _onOpenDB(db);
@@ -253,6 +254,22 @@ CREATE TABLE gamification_meta (
   value TEXT
 )
 ''');
+
+    await db.execute('''
+CREATE TABLE coin_ledger (
+  id TEXT PRIMARY KEY,
+  delta INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  ref_id TEXT,
+  created_at INTEGER NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_ledger_created_at ON coin_ledger(created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_ledger_reason ON coin_ledger(reason)',
+    );
 
     // Indexes for fast querying
     await db.execute('CREATE INDEX IF NOT EXISTS idx_thoughts_bucket ON thoughts(bucket)');
@@ -477,6 +494,28 @@ CREATE TABLE IF NOT EXISTS gamification_meta (
 )
 ''');
 
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS coin_ledger (
+  id TEXT PRIMARY KEY,
+  delta INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  ref_id TEXT,
+  created_at INTEGER NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_ledger_created_at ON coin_ledger(created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_ledger_reason ON coin_ledger(reason)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+    );
+
     // 4. MIGRATION (Section 2): Assign UUIDs, default HLC, and link bucket_ids
     // Assign UUIDs to buckets lacking one
     final bucketRows = await db.query('buckets');
@@ -568,6 +607,45 @@ CREATE TABLE IF NOT EXISTS gamification_meta (
   Future<List<Map<String, dynamic>>> fetchAllThoughts() async {
     final db = await instance.database;
     return await db.query('thoughts', orderBy: 'created_at DESC');
+  }
+
+  /// Items likely auto-filed into Raw by the v1.3.1 default (2026-11-23T01:24:31Z).
+  /// Used for a one-time, user-confirmed recovery back to Unsorted.
+  Future<List<Map<String, dynamic>>> fetchRawDefaultRecoveryCandidates({
+    required int sinceCreatedAtMs,
+  }) async {
+    final db = await instance.database;
+    return await db.query(
+      'thoughts',
+      columns: ['id', 'content', 'title', 'created_at', 'bucket', 'status', 'done', 'trashed'],
+      where:
+          "LOWER(TRIM(COALESCE(bucket, ''))) = 'raw' AND (trashed IS NULL OR trashed = 0) AND status != 'vaulted_trash' AND created_at >= ?",
+      whereArgs: [sinceCreatedAtMs],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  Future<int> moveRawThoughtsToUnsorted(List<String> ids, {String? deviceId}) async {
+    if (ids.isEmpty) return 0;
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    final nowHlc = Hlc.now(node).toString();
+    var updated = 0;
+    await db.transaction((txn) async {
+      for (final id in ids) {
+        final count = await txn.rawUpdate('''
+UPDATE thoughts SET
+  bucket = NULL,
+  bucket_id = NULL,
+  updated_at = ?,
+  updated_by = ?,
+  revision = revision + 1
+WHERE id = ? AND LOWER(TRIM(COALESCE(bucket, ''))) = 'raw' AND (trashed IS NULL OR trashed = 0)
+''', [nowHlc, node, id]);
+        updated += count;
+      }
+    });
+    return updated;
   }
 
   Future<void> updateThoughtStatus(String id, String status, {String? deviceId}) async {
@@ -998,6 +1076,76 @@ WHERE name = ?
   Future<List<Map<String, dynamic>>> fetchAliases() async {
     final db = await instance.database;
     return await db.query('bucket_aliases');
+  }
+
+  // --- Coin Ledger (v6: balance = SUM(delta), never negative) ---
+
+  Future<int> fetchCoinBalance({DatabaseExecutor? db}) async {
+    final executor = db ?? await instance.database;
+    final res = await executor.rawQuery(
+      'SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger',
+    );
+    return Sqflite.firstIntValue(res) ?? 0;
+  }
+
+  Future<int> awardCoins({
+    required int amount,
+    required String reason,
+    String? refId,
+    int? createdAt,
+  }) async {
+    if (amount <= 0) return await fetchCoinBalance();
+    final db = await instance.database;
+    final now = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    try {
+      await db.insert('coin_ledger', {
+        'id': SyncIdentity.newUuid(),
+        'delta': amount,
+        'reason': reason,
+        'ref_id': refId,
+        'created_at': now,
+      });
+    } on DatabaseException catch (e) {
+      // Unique ref_id prevents duplicate rewards at DB level.
+      if (refId == null || !e.isUniqueConstraintError()) rethrow;
+    }
+    return fetchCoinBalance(db: db);
+  }
+
+  Future<int> spendCoins({
+    required int amount,
+    required String reason,
+    String? refId,
+    int? createdAt,
+  }) async {
+    if (amount <= 0) return await fetchCoinBalance();
+    final db = await instance.database;
+    final now = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    return db.transaction<int>((txn) async {
+      final res = await txn.rawQuery(
+        'SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger',
+      );
+      final balance = Sqflite.firstIntValue(res) ?? 0;
+      if (balance < amount) {
+        throw StateError('Insufficient coins: have $balance, need $amount');
+      }
+      await txn.insert('coin_ledger', {
+        'id': SyncIdentity.newUuid(),
+        'delta': -amount,
+        'reason': reason,
+        'ref_id': refId,
+        'created_at': now,
+      });
+      final after = await txn.rawQuery(
+        'SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger',
+      );
+      return Sqflite.firstIntValue(after) ?? 0;
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> fetchCoinLedger({int limit = 50}) async {
+    final db = await instance.database;
+    return db.query('coin_ledger', orderBy: 'created_at DESC', limit: limit);
   }
 
   // --- Snapshot Backups (Section 5: 7-Day Undo Retention) ---

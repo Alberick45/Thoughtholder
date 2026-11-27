@@ -18,7 +18,7 @@ class DatabaseMigrationService {
   DatabaseMigrationService._();
   static final DatabaseMigrationService instance = DatabaseMigrationService._();
 
-  static const int currentSchemaVersion = 5;
+  static const int currentSchemaVersion = 6;
   String? lastSafeBackupPath;
   String? migrationError;
 
@@ -272,6 +272,28 @@ class DatabaseMigrationService {
             });
           }
         }
+        break;
+
+      case 6:
+        // Schema V6: Coin ledger (balance = SUM(delta)); idempotent for safety.
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS coin_ledger (
+            id TEXT PRIMARY KEY,
+            delta INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            ref_id TEXT,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_coin_ledger_created_at ON coin_ledger(created_at)',
+        );
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_coin_ledger_reason ON coin_ledger(reason)',
+        );
+        await db.execute(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+        );
         break;
 
       default:

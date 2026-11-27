@@ -4,11 +4,62 @@ import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import '../database_helper.dart';
 import '../utils/app_logger.dart';
+import 'economy_config.dart';
 
-/// Service managing Daily Goal, XP, Levels, and Streaks for ThoughtHolder.
+class RewardEvent {
+  final int xpEarned;
+  final int coinsEarned;
+  final bool dailyGoalReached;
+  final bool leveledUp;
+  final int level;
+  final String? unlockName;
+
+  const RewardEvent({
+    this.xpEarned = 0,
+    this.coinsEarned = 0,
+    this.dailyGoalReached = false,
+    this.leveledUp = false,
+    required this.level,
+    this.unlockName,
+  });
+}
+
+class LevelReward {
+  final int level;
+  final String name;
+  final String type; // cosmetic_title, note_color, pin_style
+  final String description;
+  final int coinCost;
+
+  const LevelReward({
+    required this.level,
+    required this.name,
+    required this.type,
+    required this.description,
+    required this.coinCost,
+  });
+}
+
+/// Service managing Daily Goal, XP, Levels, Streaks, and Coins.
 class GamificationService extends ChangeNotifier {
   static final GamificationService instance = GamificationService._();
   GamificationService._();
+
+  static const int dailyGoalCoinReward = EconomyConfig.dailyGoalCoinReward;
+  static const int levelUpCoinReward = EconomyConfig.levelUpCoinReward;
+
+  static const List<LevelReward> levelRewards = [
+    LevelReward(level: 1, name: 'Starter', type: 'cosmetic_title', description: 'Default title', coinCost: 0),
+    LevelReward(level: 2, name: 'Focused', type: 'cosmetic_title', description: 'Focused title badge', coinCost: 20),
+    LevelReward(level: 3, name: 'Lemon Note', type: 'note_color', description: 'Unlock lemon note color', coinCost: 30),
+    LevelReward(level: 4, name: 'Mint Note', type: 'note_color', description: 'Unlock mint note color', coinCost: 30),
+    LevelReward(level: 5, name: 'Gold Pin', type: 'pin_style', description: 'Unlock gold pin style', coinCost: 50),
+    LevelReward(level: 6, name: 'Sky Note', type: 'note_color', description: 'Unlock sky note color', coinCost: 40),
+    LevelReward(level: 7, name: 'Planner', type: 'cosmetic_title', description: 'Planner title badge', coinCost: 60),
+    LevelReward(level: 8, name: 'Lavender Note', type: 'note_color', description: 'Unlock lavender note color', coinCost: 50),
+    LevelReward(level: 9, name: 'Silver Pin', type: 'pin_style', description: 'Unlock silver pin style', coinCost: 75),
+    LevelReward(level: 10, name: 'Master Finisher', type: 'cosmetic_title', description: 'Master Finisher title', coinCost: 100),
+  ];
 
   int _totalXp = 0;
   int _currentGoal = 4;
@@ -23,6 +74,8 @@ class GamificationService extends ChangeNotifier {
   bool _initialized = false;
   bool _mainGoalCompletedToday = false;
   static const String _mainGoalMetaKey = 'main_goal_completed_date';
+  int _coinBalance = 0;
+  final Set<String> _coinAwardsGranted = {};
 
   int get totalXp => _totalXp;
   int get currentGoal => _isGoalFixed ? _fixedGoalValue : _currentGoal;
@@ -35,6 +88,27 @@ class GamificationService extends ChangeNotifier {
   bool get isDailyGoalReached =>
       todayCompletedCount >= currentGoal || _mainGoalCompletedToday;
   int get restDaysUsedThisWeek => _restDaysUsedThisWeek;
+  int get coinBalance => _coinBalance;
+
+  RewardEvent? _pendingRewardEvent;
+  RewardEvent? consumePendingRewardEvent() {
+    final e = _pendingRewardEvent;
+    _pendingRewardEvent = null;
+    return e;
+  }
+
+  void queueRewardEvent(RewardEvent event) {
+    _pendingRewardEvent = event;
+  }
+
+  LevelReward? rewardForLevel(int lvl) {
+    for (final r in levelRewards) {
+      if (r.level == lvl) return r;
+    }
+    return null;
+  }
+
+  bool isRewardUnlocked(int lvl) => level >= lvl;
 
   /// Calculates level based on XP.
   /// Level 1: 0-50 XP
@@ -126,6 +200,17 @@ class GamificationService extends ChangeNotifier {
       _restDaysUsedThisWeek = int.tryParse(meta['rest_days_used_this_week'] ?? '') ?? 0;
       _weekIdentifier = meta['week_identifier'] ?? '';
       _mainGoalCompletedToday = meta[_mainGoalMetaKey] == _getTodayString();
+      _coinBalance = await DatabaseHelper.instance.fetchCoinBalance(db: db);
+      _coinAwardsGranted.clear();
+      final awardsRaw = meta['coin_awards_granted'] ?? '';
+      if (awardsRaw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(awardsRaw);
+          if (decoded is List) {
+            _coinAwardsGranted.addAll(decoded.map((e) => e.toString()));
+          }
+        } catch (_) {}
+      }
 
       final now = DateTime.now();
       final currentWeek = _getWeekIdentifier(now);
@@ -206,6 +291,42 @@ class GamificationService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> _grantCoinsOnce(String awardKey, int amount, String reason) async {
+    if (amount <= 0 || _coinAwardsGranted.contains(awardKey)) return;
+    _coinBalance = await DatabaseHelper.instance.awardCoins(
+      amount: amount,
+      reason: reason,
+      refId: awardKey,
+    );
+    _coinAwardsGranted.add(awardKey);
+    final trimmed = _coinAwardsGranted.toList()
+      ..sort()
+      ..removeWhere((_) => false);
+    // keep recent keys to avoid unbounded growth
+    final keep = trimmed.length > 200 ? trimmed.sublist(trimmed.length - 200) : trimmed;
+    _coinAwardsGranted
+      ..clear()
+      ..addAll(keep);
+    await _saveMetaKey('coin_awards_granted', jsonEncode(keep));
+  }
+
+  Future<bool> spendCoins(int amount, String reason, {String? refId}) async {
+    await init();
+    try {
+      _coinBalance = await DatabaseHelper.instance.spendCoins(
+        amount: amount,
+        reason: reason,
+        refId: refId,
+      );
+      notifyListeners();
+      return true;
+    } catch (_) {
+      _coinBalance = await DatabaseHelper.instance.fetchCoinBalance();
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Sets fixed daily goal or allows auto-progression.
   Future<void> setGoalSettings({required bool isFixed, required int goalValue}) async {
     _isGoalFixed = isFixed;
@@ -219,14 +340,19 @@ class GamificationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Handles completion of a pinned task.
-  /// Returns XP awarded, or 0 if created and finished within a minute.
+  /// Handles completion of a pinned task. Returns XP awarded.
   Future<int> onPinnedTaskCompleted(Map<String, dynamic> thought) async {
+    final event = await onPinnedTaskCompletedDetailed(thought);
+    return event.xpEarned;
+  }
+
+  Future<RewardEvent> onPinnedTaskCompletedDetailed(
+    Map<String, dynamic> thought,
+  ) async {
     await init();
     final thoughtId = thought['id']?.toString() ?? '';
-    if (thoughtId.isEmpty) return 0;
+    if (thoughtId.isEmpty) return RewardEvent(level: level);
 
-    // Check anti-gaming: "A thought that was created and finished within a minute gives no XP."
     final createdAtRaw = thought['created_at'];
     final createdAt = createdAtRaw is num
         ? createdAtRaw.toInt()
@@ -242,28 +368,32 @@ class GamificationService extends ChangeNotifier {
       } else if (timeVal == 'quick') {
         xpToAdd = 5;
       } else {
-        xpToAdd = 10; // Medium / default
+        xpToAdd = 10;
       }
     }
 
+    final prevLevel = level;
     _todayCompletedThoughtIds.add(thoughtId);
     final wasGoalReachedBefore = _mainGoalCompletedToday ||
         ((_todayCompletedThoughtIds.length - 1) >= currentGoal);
     final isGoalReachedNow = _mainGoalCompletedToday ||
         (_todayCompletedThoughtIds.length >= currentGoal);
+    var dailyGoalJustReached = false;
+    var coinsEarned = 0;
 
-    // Bonus +10 XP when the daily goal is reached for the first time today
     if (!wasGoalReachedBefore && isGoalReachedNow) {
+      dailyGoalJustReached = true;
       xpToAdd += 10;
       _consecutiveGoalHitDays++;
       _streak++;
       await _saveMetaKey('streak', '$_streak');
-      await _saveMetaKey('consecutive_goal_hit_days', '$_consecutiveGoalHitDays');
-
-      // Check progression: "after 5 days in a row of hitting it, go from 4 to 5, up to 8"
+      await _saveMetaKey(
+        'consecutive_goal_hit_days',
+        '$_consecutiveGoalHitDays',
+      );
       if (!_isGoalFixed && _consecutiveGoalHitDays >= 5 && _currentGoal < 8) {
         _currentGoal = math.min(8, _currentGoal + 1);
-        _consecutiveGoalHitDays = 0; // reset for next tier
+        _consecutiveGoalHitDays = 0;
         await _saveMetaKey('current_goal', '$_currentGoal');
         await _saveMetaKey('consecutive_goal_hit_days', '0');
       }
@@ -271,13 +401,30 @@ class GamificationService extends ChangeNotifier {
 
     _totalXp += xpToAdd;
     _todayXpEarned += xpToAdd;
-
     await _saveMetaKey('total_xp', '$_totalXp');
 
-    // Persist today's daily record
+    final newLevel = level;
+    final leveledUp = newLevel > prevLevel;
+    final todayStr = _getTodayString();
+    if (dailyGoalJustReached) {
+      await _grantCoinsOnce(
+        'daily_goal:$todayStr',
+        dailyGoalCoinReward,
+        'daily_goal_complete',
+      );
+      coinsEarned += dailyGoalCoinReward;
+    }
+    if (leveledUp) {
+      await _grantCoinsOnce(
+        'level_up:$newLevel:$todayStr',
+        levelUpCoinReward,
+        'level_up',
+      );
+      coinsEarned += levelUpCoinReward;
+    }
+
     try {
       final db = await DatabaseHelper.instance.database;
-      final todayStr = _getTodayString();
       await db.insert(
         'daily_goals',
         {
@@ -286,7 +433,8 @@ class GamificationService extends ChangeNotifier {
           'goal': currentGoal,
           'xp_earned': _todayXpEarned,
           'goal_reached': isGoalReachedNow ? 1 : 0,
-          'completed_thought_ids': jsonEncode(_todayCompletedThoughtIds.toList()),
+          'completed_thought_ids':
+              jsonEncode(_todayCompletedThoughtIds.toList()),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -294,30 +442,68 @@ class GamificationService extends ChangeNotifier {
       AppLogger.error('GamificationService', 'Failed saving daily progress: $e');
     }
 
+    final event = RewardEvent(
+      xpEarned: xpToAdd,
+      coinsEarned: coinsEarned,
+      dailyGoalReached: dailyGoalJustReached,
+      leveledUp: leveledUp,
+      level: newLevel,
+      unlockName: leveledUp ? rewardForLevel(newLevel)?.name : null,
+    );
     notifyListeners();
-    return xpToAdd;
+    return event;
   }
 
-  /// Completing all Main items for the period counts as the daily goal in the existing game.
+  /// Completing all Main items for the period counts as the daily goal.
   Future<int> onMainGoalCompleted() async {
+    final event = await onMainGoalCompletedDetailed();
+    return event.xpEarned;
+  }
+
+  Future<RewardEvent> onMainGoalCompletedDetailed() async {
     await init();
     final todayStr = _getTodayString();
-    if (_mainGoalCompletedToday) return 0;
+    if (_mainGoalCompletedToday) return RewardEvent(level: level);
     _mainGoalCompletedToday = true;
     await _saveMetaKey(_mainGoalMetaKey, todayStr);
 
+    final prevLevel = level;
     int xpAdded = 0;
+    var dailyGoalJustReached = false;
+    var coinsEarned = 0;
     final wasGoalReachedBefore = todayCompletedCount >= currentGoal;
     if (!wasGoalReachedBefore) {
+      dailyGoalJustReached = true;
       xpAdded = 10;
       _totalXp += 10;
       _todayXpEarned += 10;
       _consecutiveGoalHitDays++;
       _streak++;
-
       await _saveMetaKey('streak', '$_streak');
-      await _saveMetaKey('consecutive_goal_hit_days', '$_consecutiveGoalHitDays');
+      await _saveMetaKey(
+        'consecutive_goal_hit_days',
+        '$_consecutiveGoalHitDays',
+      );
       await _saveMetaKey('total_xp', '$_totalXp');
+    }
+
+    final newLevel = level;
+    final leveledUp = newLevel > prevLevel;
+    if (dailyGoalJustReached) {
+      await _grantCoinsOnce(
+        'daily_goal:$todayStr',
+        dailyGoalCoinReward,
+        'daily_goal_complete',
+      );
+      coinsEarned += dailyGoalCoinReward;
+    }
+    if (leveledUp) {
+      await _grantCoinsOnce(
+        'level_up:$newLevel:$todayStr',
+        levelUpCoinReward,
+        'level_up',
+      );
+      coinsEarned += levelUpCoinReward;
     }
 
     try {
@@ -330,7 +516,8 @@ class GamificationService extends ChangeNotifier {
           'goal': currentGoal,
           'xp_earned': _todayXpEarned,
           'goal_reached': 1,
-          'completed_thought_ids': jsonEncode(_todayCompletedThoughtIds.toList()),
+          'completed_thought_ids':
+              jsonEncode(_todayCompletedThoughtIds.toList()),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -338,8 +525,16 @@ class GamificationService extends ChangeNotifier {
       AppLogger.error('GamificationService', 'Failed saving main goal completion: $e');
     }
 
+    final event = RewardEvent(
+      xpEarned: xpAdded,
+      coinsEarned: coinsEarned,
+      dailyGoalReached: dailyGoalJustReached,
+      leveledUp: leveledUp,
+      level: newLevel,
+      unlockName: leveledUp ? rewardForLevel(newLevel)?.name : null,
+    );
     notifyListeners();
-    return xpAdded;
+    return event;
   }
 
   /// Summary string for end-of-day or completion toast: e.g. "4/4 done, +55 XP, streak 6"

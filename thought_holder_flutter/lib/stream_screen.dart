@@ -9,8 +9,10 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'thought_provider.dart';
 import 'database_helper.dart';
 import 'navigation_service.dart';
+import 'services/gamification_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
+import 'services/reward_feedback_service.dart';
 import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
@@ -1595,10 +1597,17 @@ class _StreamScreenState extends State<StreamScreen> {
         thought,
         colors,
       ),
-      onMarkDone: () {
+      onMarkDone: () async {
         final ideaName = TitleGenerator.getIdeaName(thought);
-        provider.markDone(thought['id'], true);
-        SoundService.instance.play(SoundEvent.done, settings: settings);
+        final xp = await provider.markDone(thought['id'], true);
+        if (context.mounted) {
+          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
+          final reward = GamificationService.instance.consumePendingRewardEvent();
+          if (reward != null) {
+            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
+            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+          }
+        }
         _showUndoSnackBar('Marked "$ideaName" as done', () {
           provider.markDone(thought['id'], false);
         });
@@ -2368,9 +2377,16 @@ class _StreamScreenState extends State<StreamScreen> {
       ),
       onMoreOptions: () =>
           _showIdeaContextMenu(context, provider, idea, colors),
-      onMarkDone: () {
-        provider.markDone(idea['id'], true);
-        SoundService.instance.play(SoundEvent.done, settings: settings);
+      onMarkDone: () async {
+        final xp = await provider.markDone(idea['id'], true);
+        if (context.mounted) {
+          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
+          final reward = GamificationService.instance.consumePendingRewardEvent();
+          if (reward != null) {
+            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
+            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+          }
+        }
         _showUndoSnackBar('Marked "$ideaName" as done', () {
           provider.markDone(idea['id'], false);
         });
@@ -2435,8 +2451,15 @@ class _StreamScreenState extends State<StreamScreen> {
           ),
           confirmDismiss: (direction) async {
             if (direction == DismissDirection.startToEnd) {
-              provider.markDone(idea['id'], true);
-              SoundService.instance.play(SoundEvent.done, settings: settings);
+              final xp = await provider.markDone(idea['id'], true);
+              if (context.mounted) {
+                RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
+                final reward = GamificationService.instance.consumePendingRewardEvent();
+                if (reward != null) {
+                  await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
+                  await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+                }
+              }
               _showUndoSnackBar('Marked "$ideaName" as done', () {
                 provider.markDone(idea['id'], false);
               });

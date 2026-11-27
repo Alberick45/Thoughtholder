@@ -802,6 +802,37 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool get hasOfferedRawDefaultRecovery =>
+      _box.get('raw_default_recovery_offered_v133', defaultValue: false) as bool;
+
+  Future<void> setHasOfferedRawDefaultRecovery(bool value) async {
+    await _box.put('raw_default_recovery_offered_v133', value);
+    notifyListeners();
+  }
+
+  String get lastDailyGoalCelebratedDate =>
+      _box.get('last_daily_goal_celebrated_date', defaultValue: '') as String;
+
+  Future<void> setLastDailyGoalCelebratedDate(String value) async {
+    await _box.put('last_daily_goal_celebrated_date', value);
+    notifyListeners();
+  }
+
+  bool get hapticsEnabled => _box.get('haptics_enabled', defaultValue: true) as bool;
+
+  Future<void> setHapticsEnabled(bool value) async {
+    await _box.put('haptics_enabled', value);
+    notifyListeners();
+  }
+
+  bool get reduceAnimations =>
+      _box.get('reduce_animations', defaultValue: false) as bool;
+
+  Future<void> setReduceAnimations(bool value) async {
+    await _box.put('reduce_animations', value);
+    notifyListeners();
+  }
+
   bool get betaUpdatesEnabled => _box.get('beta_updates_enabled', defaultValue: false) as bool;
 
   Future<void> setBetaUpdatesEnabled(bool value) async {
