@@ -360,13 +360,14 @@ class GamificationService extends ChangeNotifier {
     await _saveMetaKey('coin_awards_granted', jsonEncode(keep));
   }
 
-  Future<bool> spendCoins(int amount, String reason, {String? refId}) async {
+  Future<bool> spendCoins(int amount, String reason, {String? refId, String? idempotencyKey}) async {
     await init();
     try {
       _coinBalance = await DatabaseHelper.instance.spendCoins(
         amount: amount,
         reason: reason,
         refId: refId,
+        idempotencyKey: idempotencyKey,
       );
       notifyListeners();
       return true;
@@ -375,6 +376,15 @@ class GamificationService extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> awardTriviaLevel(int level) async {
+    await init();
+    final key = 'trivia_level:$level:${_getTodayString()}';
+    await _grantCoinsOnce(key, EconomyConfig.triviaLevelXpReward > 0 ? EconomyConfig.triviaLevelCoinReward : EconomyConfig.triviaLevelCoinReward, 'trivia_level');
+    _totalXp += EconomyConfig.triviaLevelXpReward;
+    await _saveMetaKey('total_xp', '$_totalXp');
+    notifyListeners();
   }
 
   /// Sets daily goal target. Part 1: user-settable per-day target (1-20).

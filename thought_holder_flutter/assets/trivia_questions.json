@@ -1,0 +1,17 @@
+﻿{
+  "schemaVersion": 1,
+  "packs": [
+    {"id":"starter","name":"Starter","unlockCost":0,"questions":[
+      {"id":"q1","level":1,"question":"What is 2+2?","options":["3","4","5","6"],"correctIndex":1},
+      {"id":"q2","level":1,"question":"Which color is the sky on a clear day?","options":["Green","Blue","Red","Yellow"],"correctIndex":1},
+      {"id":"q3","level":1,"question":"How many days are in a week?","options":["5","6","7","8"],"correctIndex":2},
+      {"id":"q4","level":1,"question":"Which is a fruit?","options":["Carrot","Apple","Potato","Onion"],"correctIndex":1},
+      {"id":"q5","level":1,"question":"What comes after Monday?","options":["Sunday","Tuesday","Friday","Saturday"],"correctIndex":1},
+      {"id":"q6","level":2,"question":"What is the capital of France?","options":["Rome","Madrid","Paris","Berlin"],"correctIndex":2},
+      {"id":"q7","level":2,"question":"Which animal barks?","options":["Cat","Dog","Cow","Sheep"],"correctIndex":1},
+      {"id":"q8","level":2,"question":"Water freezes at what C?","options":["0","10","50","100"],"correctIndex":0},
+      {"id":"q9","level":2,"question":"Which shape has 3 sides?","options":["Square","Triangle","Circle","Rectangle"],"correctIndex":1},
+      {"id":"q10","level":2,"question":"Which planet do we live on?","options":["Mars","Earth","Venus","Jupiter"],"correctIndex":1}
+    ]}
+  ]
+}

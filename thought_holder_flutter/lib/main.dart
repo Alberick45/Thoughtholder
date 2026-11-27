@@ -11,6 +11,7 @@ import 'thought_provider.dart';
 import 'stream_screen.dart';
 import 'capture_screen.dart';
 import 'games/sort_game_screen.dart';
+import 'games/trivia_screen.dart';
 import 'settings_modal.dart';
 import 'google_drive_service.dart';
 import 'sender_service.dart';
@@ -484,7 +485,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final currentIndex = nav.mainTabIndex;
     final bool isBucketOpen = (currentIndex == 1 && nav.streamSubTab == 'sorted' && nav.selectedBucket != null);
     final bool isBoardFullscreen = (currentIndex == 1 && nav.isBoardExpanded && !nav.isTrashOpen && nav.selectedBucket == null);
-    final bool isSortTab = currentIndex == 2;
+    final bool isGameTab = currentIndex >= 2;
 
     final liveIndex = _liveMainPage.round().clamp(0, 1);
 
@@ -556,11 +557,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
           body: SwipeTabs(
             currentIndex: currentIndex,
-            tabLabels: const ['Speak', 'Board', 'Sort'],
+            tabLabels: const ['Speak', 'Board', 'Sort', 'Trivia'],
             enabled: settings.swipeCaptureStream &&
                 !isBucketOpen &&
                 !nav.isTrashOpen &&
-                !isSortTab &&
                 !bgRecording.isRecording &&
                 MediaQuery.viewInsetsOf(context).bottom == 0,
             thresholdFraction: settings.swipeThresholdFraction,
@@ -578,6 +578,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               CaptureScreen(),
               StreamScreen(),
               SortGameScreen(),
+              TriviaScreen(),
             ],
           ),
           bottomNavigationBar: isBucketOpen
@@ -602,21 +603,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               items: [
-                BottomNavigationBarItem(
-                  icon: Semantics(label: 'Speak, tab 1 of 3${liveIndex == 0 ? ', selected' : ''}', child: const Icon(Icons.mic_outlined, size: 26)),
-                  activeIcon: Semantics(label: 'Speak, tab 1 of 3, selected', child: const Icon(Icons.mic, size: 26)),
-                  label: 'Speak',
-                ),
-                BottomNavigationBarItem(
-                  icon: Semantics(label: 'Board, tab 2 of 3${liveIndex == 1 ? ', selected' : ''}', child: const Icon(Icons.push_pin_outlined, size: 26)),
-                  activeIcon: Semantics(label: 'Board, tab 2 of 3, selected', child: const Icon(Icons.push_pin, size: 26)),
-                  label: 'Board',
-                ),
-                BottomNavigationBarItem(
-                  icon: Semantics(label: 'Sort, tab 3 of 3${liveIndex == 2 ? ', selected' : ''}', child: const Icon(Icons.swap_horiz, size: 26)),
-                  activeIcon: Semantics(label: 'Sort, tab 3 of 3, selected', child: const Icon(Icons.swap_horiz, size: 26)),
-                  label: 'Sort',
-                ),
+                BottomNavigationBarItem(icon: Semantics(label: 'Speak, tab 1 of 4${liveIndex == 0 ? ', selected' : ''}', child: const Icon(Icons.mic_outlined, size: 26)), activeIcon: Semantics(label: 'Speak, tab 1 of 4, selected', child: const Icon(Icons.mic, size: 26)), label: 'Speak'),
+                BottomNavigationBarItem(icon: Semantics(label: 'Board, tab 2 of 4${liveIndex == 1 ? ', selected' : ''}', child: const Icon(Icons.push_pin_outlined, size: 26)), activeIcon: Semantics(label: 'Board, tab 2 of 4, selected', child: const Icon(Icons.push_pin, size: 26)), label: 'Board'),
+                BottomNavigationBarItem(icon: Semantics(label: 'Sort, tab 3 of 4${liveIndex == 2 ? ', selected' : ''}', child: const Icon(Icons.swap_horiz, size: 26)), activeIcon: Semantics(label: 'Sort, tab 3 of 4, selected', child: const Icon(Icons.swap_horiz, size: 26)), label: 'Sort'),
+                BottomNavigationBarItem(icon: Semantics(label: 'Trivia, tab 4 of 4${liveIndex == 3 ? ', selected' : ''}', child: const Icon(Icons.quiz_outlined, size: 26)), activeIcon: Semantics(label: 'Trivia, tab 4 of 4, selected', child: const Icon(Icons.quiz, size: 26)), label: 'Trivia'),
               ],
             ),
           ),

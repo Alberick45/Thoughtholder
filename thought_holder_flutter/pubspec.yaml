@@ -94,6 +94,7 @@ flutter:
   assets:
     - assets/app_icon.ico
     - assets/icon.png
+    - assets/trivia_questions.json
     - assets/sounds/soft/
     - assets/sounds/crisp/
 
