@@ -47,8 +47,20 @@ class SortGameService {
     return v;
   }
 
-  Future<SortGameResult> completeBatch({required List<String> sortedIds}) async {
-    if (sortedIds.isEmpty) return SortGameResult(awardedCoins: 0, newBalance: await DatabaseHelper.instance.fetchCoinBalance(), capReached: false, sortedCount: 0);
+  Future<void> clearShown(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await DatabaseHelper.instance.database;
+    final batch = db.batch();
+    for (final id in ids) {
+      batch.rawUpdate('UPDATE thoughts SET sort_last_shown_at=NULL WHERE id=?', [id]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<SortGameResult> completeBatch({required List<String> sortedIds, required int requiredCount}) async {
+    if (sortedIds.length < requiredCount) {
+      return SortGameResult(awardedCoins: 0, newBalance: await DatabaseHelper.instance.fetchCoinBalance(), capReached: false, sortedCount: sortedIds.length);
+    }
     final today = _today();
     final already = await awardedToday();
     final remaining = max(0, EconomyConfig.dailySortCoinCap - already);
