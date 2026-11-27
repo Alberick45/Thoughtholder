@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import '../services/economy_config.dart';
 
@@ -41,8 +42,11 @@ class TriviaRepository {
 
   static Future<List<TriviaQuestion>> questionsForLevel(int level, {Set<String> ownedPacks = const {'starter'}}) async {
     final packs = await loadPacks();
-    final all = packs.where((p)=>ownedPacks.contains(p.id)).expand((p)=>p.questions).where((q)=>q.level==level).toList();
-    if (all.isEmpty) return packs.expand((p)=>p.questions).take(EconomyConfig.triviaQuestionsPerLevel).toList();
-    return all.take(EconomyConfig.triviaQuestionsPerLevel).toList();
+    final owned = packs.where((p)=>ownedPacks.contains(p.id)).expand((p)=>p.questions).toList();
+    final levelQs = owned.where((q)=>q.level==level).toList();
+    final fallback = owned.isNotEmpty ? owned : packs.expand((p)=>p.questions).toList();
+    final pool = levelQs.isNotEmpty ? levelQs : fallback;
+    pool.shuffle();
+    return pool.take(EconomyConfig.triviaQuestionsPerLevel).toList();
   }
 }

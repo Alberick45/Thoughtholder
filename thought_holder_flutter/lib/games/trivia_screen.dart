@@ -16,18 +16,22 @@ class _TriviaScreenState extends State<TriviaScreen> {
     final correct = i == q.correctIndex;
     if (correct) {
       message = 'Correct!';
-      qIndex++;
-      if (qIndex >= questions.length) {
-        await GamificationService.instance.awardTriviaLevel(level);
-        message = 'Level $level complete! +${EconomyConfig.triviaLevelCoinReward} coins, +${EconomyConfig.triviaLevelXpReward} XP';
-        level++;
-        await _load();
-        return;
-      }
     } else {
       lives--;
-      message = 'Wrong answer.';
-      if (lives <= 0) { message = 'Out of lives. Revive?'; }
+      message = 'Wrong - life lost.';
+    }
+    qIndex++;
+    if (lives <= 0) {
+      if (mounted) setState(() { hidden = {}; });
+      return;
+    }
+    if (qIndex >= questions.length) {
+      await GamificationService.instance.awardTriviaLevel(level);
+      if (!mounted) return;
+      setState(() { message = 'Level $level complete! +${EconomyConfig.triviaLevelCoinReward} coins, +${EconomyConfig.triviaLevelXpReward} XP'; });
+      level++;
+      await _load();
+      return;
     }
     if (mounted) setState(()=>hidden={});
   }
@@ -44,14 +48,14 @@ class _TriviaScreenState extends State<TriviaScreen> {
     if (loading) return const Scaffold(body: Center(child:CircularProgressIndicator()));
     final dead = lives <= 0;
     final q = questions.isEmpty ? null : questions[qIndex.clamp(0, questions.length-1)];
-    return Scaffold(appBar: AppBar(title: Text('Trivia L$level')), body: Padding(padding: const EdgeInsets.all(16), child: q==null ? const Text('No questions') : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children:[
-      Text('Lives: $lives  •  Q ${qIndex+1}/${questions.length}'),
+    return Scaffold(appBar: AppBar(title: Text('Trivia L$level')), body: SafeArea(child: Padding(padding: const EdgeInsets.all(16), child: q==null ? const Center(child: Text('No questions available')) : ListView(children:[
+      Text('Lives: $lives  •  Q ${(qIndex+1).clamp(1, questions.length)}/${questions.length}'),
       const SizedBox(height:12),
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(q.question, style: const TextStyle(fontSize: 18)))),
       const SizedBox(height:12),
       for (int i=0;i<q.options.length;i++) if(!hidden.contains(i)) Padding(padding: const EdgeInsets.only(bottom:8), child: ElevatedButton(onPressed: dead?null:()=>_answer(i), child: Text(q.options[i]))),
       if (dead) ElevatedButton(onPressed: _revive, child: Text('Revive ($reviveCost coins)')),
       if (message!=null) Padding(padding: const EdgeInsets.only(top:8), child: Text(message!)),
-    ])));
+    ]))));
   }
 }

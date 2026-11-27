@@ -382,6 +382,7 @@ CREATE TABLE coin_ledger (
       'goal_target': 'ALTER TABLE thoughts ADD COLUMN goal_target INTEGER',
       'goal_unit': 'ALTER TABLE thoughts ADD COLUMN goal_unit TEXT',
       'intent_confidence': 'ALTER TABLE thoughts ADD COLUMN intent_confidence REAL DEFAULT 0',
+      'sort_last_shown_at': 'ALTER TABLE thoughts ADD COLUMN sort_last_shown_at INTEGER',
     }.entries) {
       if (!existingTCols.contains(col.key)) await db.execute(col.value);
     }
