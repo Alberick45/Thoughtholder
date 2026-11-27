@@ -70,12 +70,15 @@ void main() {
         .runMigrations(db, dbPath, backupDirectoryPath: backupDir);
 
     var versionRows = await db.rawQuery('PRAGMA user_version');
-    expect(versionRows.first.values.first, 6);
+    expect(versionRows.first.values.first, 7);
 
     final thoughtCols = (await db.rawQuery('PRAGMA table_info(thoughts)'))
         .map((r) => r['name'])
         .toSet();
     expect(thoughtCols, contains('due_at'));
+    expect(thoughtCols, contains('action_text'));
+    expect(thoughtCols, contains('sub_steps'));
+    expect(thoughtCols, contains('intent_type'));
 
     final rows = await db.query('thoughts', where: 'id = ?', whereArgs: ['keep-me']);
     expect(rows, hasLength(1));
@@ -88,15 +91,15 @@ void main() {
     final coinCols = (await db.rawQuery("PRAGMA table_info(coin_ledger)"))
         .map((r) => r['name'])
         .toSet();
-    expect(coinCols, containsAll(<String>{'id','delta','reason','ref_id','created_at'}));
+    expect(coinCols, containsAll(<String>{'id','delta','reason','ref_id','created_at','idempotency_key'}));
 
-    // Re-run by rewinding user_version; v5/v6 must be idempotent.
+    // Re-run by rewinding user_version; v5/v6/v7 must be idempotent.
     await db.execute('PRAGMA user_version = 4');
     await DatabaseMigrationService.instance
         .runMigrations(db, dbPath, backupDirectoryPath: backupDir);
 
     versionRows = await db.rawQuery('PRAGMA user_version');
-    expect(versionRows.first.values.first, 6);
+    expect(versionRows.first.values.first, 7);
 
     await db.close();
     await tempDir.delete(recursive: true);

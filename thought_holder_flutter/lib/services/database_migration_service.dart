@@ -18,7 +18,7 @@ class DatabaseMigrationService {
   DatabaseMigrationService._();
   static final DatabaseMigrationService instance = DatabaseMigrationService._();
 
-  static const int currentSchemaVersion = 6;
+  static const int currentSchemaVersion = 7;
   String? lastSafeBackupPath;
   String? migrationError;
 
@@ -293,6 +293,34 @@ class DatabaseMigrationService {
         );
         await db.execute(
           'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+        );
+        break;
+
+      case 7:
+        // Schema V7: Make it doable + intent + coin idempotency.
+        final thoughtCols = [
+          'action_text TEXT',
+          'measure_text TEXT',
+          'deadline_at INTEGER',
+          'trigger_text TEXT',
+          "intent_type TEXT DEFAULT 'unknown'",
+          'sub_steps TEXT',
+          'next_sub_step_index INTEGER DEFAULT 0',
+          'goal_target INTEGER',
+          'goal_unit TEXT',
+          'intent_confidence REAL DEFAULT 0',
+        ];
+        for (final col in thoughtCols) {
+          final name = col.split(' ').first;
+          if (!await _hasColumn(db, 'thoughts', name)) {
+            await db.execute('ALTER TABLE thoughts ADD COLUMN $col');
+          }
+        }
+        if (!await _hasColumn(db, 'coin_ledger', 'idempotency_key')) {
+          await db.execute('ALTER TABLE coin_ledger ADD COLUMN idempotency_key TEXT');
+        }
+        await db.execute(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_idempotency_key_unique ON coin_ledger(idempotency_key) WHERE idempotency_key IS NOT NULL',
         );
         break;
 

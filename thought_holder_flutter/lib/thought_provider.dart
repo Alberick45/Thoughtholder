@@ -397,6 +397,16 @@ class ThoughtProvider with ChangeNotifier {
     String? recurrence,
     int? reminderAt,
     int? dueAt,
+    String? actionText,
+    String? measureText,
+    int? deadlineAt,
+    String? triggerText,
+    String? intentType,
+    double? intentConfidence,
+    String? subStepsJson,
+    int? nextSubStepIndex,
+    int? goalTarget,
+    String? goalUnit,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final deviceId = _settings != null ? SyncIdentity.getDeviceId(_settings!) : DatabaseHelper.currentDeviceId;
@@ -446,6 +456,16 @@ class ThoughtProvider with ChangeNotifier {
       'last_completed_at': null,
       'reminder_at': reminderAt,
       'due_at': dueAt,
+      'action_text': actionText,
+      'measure_text': measureText,
+      'deadline_at': deadlineAt,
+      'trigger_text': triggerText,
+      'intent_type': intentType ?? 'unknown',
+      'sub_steps': subStepsJson,
+      'next_sub_step_index': nextSubStepIndex ?? 0,
+      'goal_target': goalTarget,
+      'goal_unit': goalUnit,
+      'intent_confidence': intentConfidence ?? 0.0,
     };
 
     _sessionSkippedIds.remove(thought['id']);
@@ -468,6 +488,41 @@ class ThoughtProvider with ChangeNotifier {
   Future<void> setReminder(String id, DateTime? reminder) async {
     await DatabaseHelper.instance
         .updateThoughtReminder(id, reminder?.millisecondsSinceEpoch);
+    await loadThoughts();
+  }
+
+  Future<void> updateActionPlan(
+    String id, {
+    String? actionText,
+    String? measureText,
+    DateTime? deadlineAt,
+    bool clearDeadline = false,
+    String? triggerText,
+    String? intentType,
+    double? intentConfidence,
+    String? subStepsJson,
+    int? nextSubStepIndex,
+    int? goalTarget,
+    bool clearGoalTarget = false,
+    String? goalUnit,
+    bool clearGoalUnit = false,
+  }) async {
+    await DatabaseHelper.instance.updateThoughtActionPlan(
+      id,
+      actionText: actionText,
+      measureText: measureText,
+      deadlineAt: deadlineAt?.millisecondsSinceEpoch,
+      clearDeadline: clearDeadline,
+      triggerText: triggerText,
+      intentType: intentType,
+      intentConfidence: intentConfidence,
+      subStepsJson: subStepsJson,
+      nextSubStepIndex: nextSubStepIndex,
+      goalTarget: goalTarget,
+      clearGoalTarget: clearGoalTarget,
+      goalUnit: goalUnit,
+      clearGoalUnit: clearGoalUnit,
+    );
     await loadThoughts();
   }
 

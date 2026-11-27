@@ -818,6 +818,13 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  int get dailyGoalTarget => (_box.get('daily_goal_target', defaultValue: 4) as num).toInt().clamp(1, 20);
+
+  Future<void> setDailyGoalTarget(int value) async {
+    await _box.put('daily_goal_target', value.clamp(1, 20));
+    notifyListeners();
+  }
+
   bool get hapticsEnabled => _box.get('haptics_enabled', defaultValue: true) as bool;
 
   Future<void> setHapticsEnabled(bool value) async {

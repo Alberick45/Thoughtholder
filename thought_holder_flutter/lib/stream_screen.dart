@@ -13,6 +13,8 @@ import 'services/gamification_service.dart';
 import 'settings_service.dart';
 import 'sound_service.dart';
 import 'services/reward_feedback_service.dart';
+import 'services/intent_detection_service.dart';
+import 'dart:convert';
 import 'app_theme.dart';
 import 'idea_detail_screen.dart';
 import 'utils/title_generator.dart';
@@ -867,6 +869,21 @@ class _StreamScreenState extends State<StreamScreen> {
                 onPressed: () => SuggestBucketsSheet.show(context),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFFFD54F),
+                side: const BorderSide(color: Color(0xFFFFD54F)),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.checklist, size: 14),
+              label: Text('Make it doable', style: appFont(fontWeight: FontWeight.bold, fontSize: 12)),
+              onPressed: () => _showMakeItDoableSheet(context, provider, thought, colors),
+            ),
           ),
           const SizedBox(height: 12),
 
@@ -2865,7 +2882,7 @@ class _StreamScreenState extends State<StreamScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _showEditIdeaDialog(context, provider, thought, colors);
+                    _showEditIdeaDialog(context, thought, provider, colors);
                   },
                   icon: Icon(Icons.edit_outlined,
                       size: 18, color: colors.text),
@@ -3144,7 +3161,7 @@ class _StreamScreenState extends State<StreamScreen> {
                         child: OutlinedButton.icon(
                           onPressed: () {
                             _showEditIdeaDialog(
-                                context, provider, thought, colors);
+                                context, thought, provider, colors);
                           },
                           icon: Icon(Icons.edit_outlined,
                               size: 18, color: colors.text),
@@ -4067,7 +4084,7 @@ class _StreamScreenState extends State<StreamScreen> {
               label: 'Edit',
               onTap: () {
                 Navigator.pop(ctx);
-                _showEditIdeaDialog(context, provider, idea, colors);
+                _showEditIdeaDialog(context, idea, provider, colors);
               },
             ),
 
@@ -4840,7 +4857,7 @@ class _StreamScreenState extends State<StreamScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        _showEditIdeaDialog(context, provider, idea, colors);
+                        _showEditIdeaDialog(context, idea, provider, colors);
                       },
                       icon: const Icon(Icons.edit_outlined, size: 18),
                       label: const Text('Edit'),
@@ -4931,10 +4948,66 @@ class _StreamScreenState extends State<StreamScreen> {
   }
 
   // --- Edit Idea Dialog (Name field, Groq suggestion button, preservation) ---
-  void _showEditIdeaDialog(
+  void _showMakeItDoableSheet(
     BuildContext context,
     ThoughtProvider provider,
+    Map<String, dynamic> thought,
+    AppColors colors,
+  ) {
+    final id = thought['id'] as String;
+    final content = (thought['content'] as String?) ?? '';
+    final detected = IntentDetectionService.detect(content);
+    final actionCtrl = TextEditingController(text: ((thought['action_text'] as String?)?.trim().isNotEmpty == true) ? thought['action_text'] as String : (detected.action ?? ''));
+    final measureCtrl = TextEditingController(text: ((thought['measure_text'] as String?)?.trim().isNotEmpty == true) ? thought['measure_text'] as String : (detected.measure ?? ''));
+    final triggerCtrl = TextEditingController(text: ((thought['trigger_text'] as String?)?.trim().isNotEmpty == true) ? thought['trigger_text'] as String : (detected.trigger ?? ''));
+    final goalTargetCtrl = TextEditingController(text: ((thought['goal_target'] as num?)?.toInt() ?? detected.goalTarget ?? '').toString());
+    final goalUnitCtrl = TextEditingController(text: (thought['goal_unit'] as String?) ?? (detected.goalUnit ?? 'minutes'));
+    DateTime? deadline = (thought['deadline_at'] as num?) != null ? DateTime.fromMillisecondsSinceEpoch((thought['deadline_at'] as num).toInt()) : detected.deadline;
+    String intent = (thought['intent_type'] as String?) ?? detected.intentType;
+    List<String> steps = [];
+    final rawSteps = thought['sub_steps'] as String?;
+    if (rawSteps != null && rawSteps.isNotEmpty) { try { final d = jsonDecode(rawSteps); if (d is List) steps = d.map((e)=>e.toString()).where((e)=>e.trim().isNotEmpty).toList(); } catch (_) {} }
+    if (steps.isEmpty) steps = IntentDetectionService.defaultSubSteps(intent, actionCtrl.text);
+    final stepCtrls = steps.map((s)=>TextEditingController(text:s)).toList();
+
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: const Color(0xFF1E222B),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx)=>StatefulBuilder(builder:(ctx,setSheet){
+        InputDecoration dec(String label)=>InputDecoration(labelText: label, labelStyle: appFont(color: colors.mute), filled:true, fillColor: const Color(0xFF13151D), border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)));
+        return Padding(padding: EdgeInsets.only(left:16,right:16,top:16,bottom:MediaQuery.of(ctx).viewInsets.bottom+16),
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children:[
+            Text('Make it doable', style: appFont(color: colors.gold, fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height:8),
+            Wrap(spacing:6, children:['task','habit','goal','reminder','idea'].map((t)=>ChoiceChip(label: Text(t), selected:intent==t, onSelected:(_){ setSheet((){ intent=t; if(stepCtrls.isEmpty){ for(final s in IntentDetectionService.defaultSubSteps(t, actionCtrl.text)){ stepCtrls.add(TextEditingController(text:s)); } } }); })).toList()),
+            const SizedBox(height:10),
+            TextField(controller: actionCtrl, style: appFont(color: Colors.white), decoration: dec('Action')),
+            const SizedBox(height:8),
+            TextField(controller: measureCtrl, style: appFont(color: Colors.white), decoration: dec('Measure')),
+            const SizedBox(height:8),
+            Row(children:[Expanded(child: Text(deadline==null?'No deadline':'Deadline: ${deadline!.year}-${deadline!.month.toString().padLeft(2,'0')}-${deadline!.day.toString().padLeft(2,'0')}', style: appFont(color: colors.mute))), TextButton(onPressed: () async { final now=DateTime.now(); final p=await showDatePicker(context: ctx, initialDate: deadline??now, firstDate: now.subtract(const Duration(days:1)), lastDate: now.add(const Duration(days:365*3))); if(p!=null) setSheet(()=>deadline=DateTime(p.year,p.month,p.day,9)); }, child: const Text('Pick')), if(deadline!=null) TextButton(onPressed: ()=>setSheet(()=>deadline=null), child: const Text('Clear'))]),
+            if(intent=='habit' || intent=='goal') ...[TextField(controller: triggerCtrl, style: appFont(color: Colors.white), decoration: dec('Trigger / cue')), const SizedBox(height:8)],
+            if(intent=='goal') Row(children:[Expanded(child: TextField(controller: goalTargetCtrl, style: appFont(color: Colors.white), decoration: dec('Target'))), const SizedBox(width:8), Expanded(child: TextField(controller: goalUnitCtrl, style: appFont(color: Colors.white), decoration: dec('Unit')))]),
+            const SizedBox(height:8),
+            Text('Sub-steps', style: appFont(color: Colors.white, fontWeight: FontWeight.bold)),
+            ...List.generate(stepCtrls.length, (i)=>Padding(padding: const EdgeInsets.only(bottom:8), child: Row(children:[Expanded(child: TextField(controller: stepCtrls[i], style: appFont(color: Colors.white), decoration: dec('Step ${i+1}'))), IconButton(onPressed: ()=>setSheet(()=>stepCtrls.removeAt(i).dispose()), icon: const Icon(Icons.close,color: Colors.white70))]))),
+            TextButton.icon(onPressed: ()=>setSheet(()=>stepCtrls.add(TextEditingController())), icon: const Icon(Icons.add), label: const Text('Add sub-step')),
+            const SizedBox(height:8),
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () async {
+              final subSteps = stepCtrls.map((c)=>c.text.trim()).where((t)=>t.isNotEmpty).toList();
+              final gt = int.tryParse(goalTargetCtrl.text.trim());
+              await provider.updateActionPlan(id, actionText: actionCtrl.text.trim(), measureText: measureCtrl.text.trim(), deadlineAt: deadline, clearDeadline: deadline==null, triggerText: triggerCtrl.text.trim(), intentType: intent, intentConfidence: detected.confidence, subStepsJson: jsonEncode(subSteps), nextSubStepIndex: 0, goalTarget: gt, clearGoalTarget: gt==null, goalUnit: goalUnitCtrl.text.trim(), clearGoalUnit: goalUnitCtrl.text.trim().isEmpty);
+              if (context.mounted) Navigator.pop(ctx);
+            }, child: const Text('Save'))),
+          ])),
+        );
+      }),
+    );
+  }
+
+  void _showEditIdeaDialog(
+    BuildContext context,
     Map<String, dynamic> idea,
+    ThoughtProvider provider,
     AppColors colors,
   ) {
     final thoughtId = idea['thought_id'] as String? ?? 'LOG';

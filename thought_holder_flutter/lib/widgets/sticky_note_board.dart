@@ -1385,7 +1385,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                         children: [
                           IconButton(
                             icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFFFD54F), size: 22),
-                            onPressed: goal > 4
+                            onPressed: goal > 1
                                 ? () => gamification.setGoalSettings(
                                       isFixed: true,
                                       goalValue: goal - 1,
@@ -1398,7 +1398,7 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline, color: Color(0xFFFFD54F), size: 22),
-                            onPressed: goal < 8
+                            onPressed: goal < 20
                                 ? () => gamification.setGoalSettings(
                                       isFixed: true,
                                       goalValue: goal + 1,
@@ -1409,6 +1409,32 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  Text('Unlocks', style: appFont(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  ...GamificationService.levelRewards.map((r) {
+                    final unlocked = gamification.level >= r.level;
+                    final owned = gamification.isUnlockOwned(r.name);
+                    final canUse = unlocked && owned;
+                    final selected = (r.type == 'cosmetic_title' && gamification.selectedTitle == r.name) ||
+                        (r.type == 'note_color' && gamification.selectedNoteColor == r.name) ||
+                        (r.type == 'pin_style' && gamification.selectedPinStyle == r.name);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0xFF13151D), borderRadius: BorderRadius.circular(10), border: Border.all(color: selected ? const Color(0xFFFFD54F) : const Color(0xFF333B48))),
+                      child: Row(children: [
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('L${r.level} ${r.name}', style: appFont(color: unlocked ? Colors.white : Colors.white54, fontWeight: FontWeight.bold, fontSize: 12)),
+                          Text(r.description, style: appFont(color: const Color(0xFF9CA3AF), fontSize: 11)),
+                        ])),
+                        if (canUse)
+                          TextButton(onPressed: selected ? null : () => gamification.selectUnlock(r.name), child: Text(selected ? 'Using' : 'Use', style: appFont(color: const Color(0xFFFFD54F), fontSize: 12)))
+                        else
+                          Text(unlocked ? 'Owned' : 'Locked', style: appFont(color: const Color(0xFF9CA3AF), fontSize: 12)),
+                      ]),
+                    );
+                  }),
                 ],
               ),
             ),

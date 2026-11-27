@@ -242,7 +242,7 @@ class _DailyGoalDialog extends StatelessWidget {
               const SizedBox(height: 8),
               Text('Streak: ${game.streak} day${game.streak == 1 ? '' : 's'}', style: appFont(color: Colors.white70, fontSize: 14)),
               const SizedBox(height: 8),
-              Text('Next unlock: Level ${game.level + 1} ${game.rewardForLevel(game.level + 1)?.name ?? ''}', style: appFont(color: Colors.white70, fontSize: 13)),
+              Text('Next unlock: ${() { final r = game.rewardForLevel(game.level + 1); return r != null ? 'Level ${r.level} ${r.name}' : 'More levels soon'; }()}', style: appFont(color: Colors.white70, fontSize: 13)),
               const SizedBox(height: 16),
               ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Nice')),
             ],

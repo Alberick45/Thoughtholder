@@ -95,10 +95,10 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) async {
         await _createDB(db, version);
-        await db.execute('PRAGMA user_version = 6');
+        await db.execute('PRAGMA user_version = 7');
       },
       onOpen: (db) async {
         await _onOpenDB(db);
@@ -144,7 +144,17 @@ CREATE TABLE thoughts (
   recurrence TEXT,
   last_completed_at INTEGER,
   reminder_at INTEGER,
-  due_at INTEGER
+  due_at INTEGER,
+  action_text TEXT,
+  measure_text TEXT,
+  deadline_at INTEGER,
+  trigger_text TEXT,
+  intent_type TEXT DEFAULT 'unknown',
+  sub_steps TEXT,
+  next_sub_step_index INTEGER DEFAULT 0,
+  goal_target INTEGER,
+  goal_unit TEXT,
+  intent_confidence REAL DEFAULT 0
 )
 ''');
 
@@ -261,6 +271,7 @@ CREATE TABLE coin_ledger (
   delta INTEGER NOT NULL,
   reason TEXT NOT NULL,
   ref_id TEXT,
+  idempotency_key TEXT,
   created_at INTEGER NOT NULL
 )
 ''');
@@ -269,6 +280,12 @@ CREATE TABLE coin_ledger (
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_coin_ledger_reason ON coin_ledger(reason)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_idempotency_key_unique ON coin_ledger(idempotency_key) WHERE idempotency_key IS NOT NULL',
     );
 
     // Indexes for fast querying
@@ -352,6 +369,20 @@ CREATE TABLE coin_ledger (
     }
     if (!existingTCols.contains('due_at')) {
       await db.execute('ALTER TABLE thoughts ADD COLUMN due_at INTEGER');
+    }
+    for (final col in <String, String>{
+      'action_text': 'ALTER TABLE thoughts ADD COLUMN action_text TEXT',
+      'measure_text': 'ALTER TABLE thoughts ADD COLUMN measure_text TEXT',
+      'deadline_at': 'ALTER TABLE thoughts ADD COLUMN deadline_at INTEGER',
+      'trigger_text': 'ALTER TABLE thoughts ADD COLUMN trigger_text TEXT',
+      'intent_type': "ALTER TABLE thoughts ADD COLUMN intent_type TEXT DEFAULT 'unknown'",
+      'sub_steps': 'ALTER TABLE thoughts ADD COLUMN sub_steps TEXT',
+      'next_sub_step_index': 'ALTER TABLE thoughts ADD COLUMN next_sub_step_index INTEGER DEFAULT 0',
+      'goal_target': 'ALTER TABLE thoughts ADD COLUMN goal_target INTEGER',
+      'goal_unit': 'ALTER TABLE thoughts ADD COLUMN goal_unit TEXT',
+      'intent_confidence': 'ALTER TABLE thoughts ADD COLUMN intent_confidence REAL DEFAULT 0',
+    }.entries) {
+      if (!existingTCols.contains(col.key)) await db.execute(col.value);
     }
 
     // Ensure voice_recordings and voice_segments tables exist
@@ -500,9 +531,14 @@ CREATE TABLE IF NOT EXISTS coin_ledger (
   delta INTEGER NOT NULL,
   reason TEXT NOT NULL,
   ref_id TEXT,
+  idempotency_key TEXT,
   created_at INTEGER NOT NULL
 )
 ''');
+    final coinCols = (await db.rawQuery('PRAGMA table_info(coin_ledger)')).map((c) => c['name'] as String).toSet();
+    if (!coinCols.contains('idempotency_key')) {
+      await db.execute('ALTER TABLE coin_ledger ADD COLUMN idempotency_key TEXT');
+    }
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_coin_ledger_created_at ON coin_ledger(created_at)',
     );
@@ -513,7 +549,7 @@ CREATE TABLE IF NOT EXISTS coin_ledger (
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
     );
     await db.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_ref_id_unique ON coin_ledger(ref_id) WHERE ref_id IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_idempotency_key_unique ON coin_ledger(idempotency_key) WHERE idempotency_key IS NOT NULL',
     );
 
     // 4. MIGRATION (Section 2): Assign UUIDs, default HLC, and link bucket_ids
@@ -893,6 +929,41 @@ WHERE id = ?
 ''', [dueAt, Hlc.now(node).toString(), node, id]);
   }
 
+  Future<void> updateThoughtActionPlan(
+    String id, {
+    String? actionText,
+    String? measureText,
+    int? deadlineAt,
+    bool clearDeadline = false,
+    String? triggerText,
+    String? intentType,
+    double? intentConfidence,
+    String? subStepsJson,
+    int? nextSubStepIndex,
+    int? goalTarget,
+    bool clearGoalTarget = false,
+    String? goalUnit,
+    bool clearGoalUnit = false,
+    String? deviceId,
+  }) async {
+    final db = await instance.database;
+    final node = deviceId ?? currentDeviceId;
+    final updates = <String, dynamic>{'updated_at': Hlc.now(node).toString(), 'updated_by': node};
+    void set(String k, dynamic v) => updates[k] = v;
+    if (actionText != null) set('action_text', actionText);
+    if (measureText != null) set('measure_text', measureText);
+    if (clearDeadline) set('deadline_at', null); else if (deadlineAt != null) set('deadline_at', deadlineAt);
+    if (triggerText != null) set('trigger_text', triggerText);
+    if (intentType != null) set('intent_type', intentType);
+    if (intentConfidence != null) set('intent_confidence', intentConfidence);
+    if (subStepsJson != null) set('sub_steps', subStepsJson);
+    if (nextSubStepIndex != null) set('next_sub_step_index', nextSubStepIndex);
+    if (clearGoalTarget) set('goal_target', null); else if (goalTarget != null) set('goal_target', goalTarget);
+    if (clearGoalUnit) set('goal_unit', null); else if (goalUnit != null) set('goal_unit', goalUnit);
+    final setClause = updates.keys.map((k) => '$k = ?').join(', ');
+    await db.rawUpdate('UPDATE thoughts SET $setClause, revision = revision + 1 WHERE id = ?', [...updates.values, id]);
+  }
+
   Future<void> updateThoughtTrashed(String id, bool trashed, {String? deviceId}) async {
     final db = await instance.database;
     final node = deviceId ?? currentDeviceId;
@@ -1092,22 +1163,24 @@ WHERE name = ?
     required int amount,
     required String reason,
     String? refId,
+    String? idempotencyKey,
     int? createdAt,
   }) async {
     if (amount <= 0) return await fetchCoinBalance();
     final db = await instance.database;
     final now = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    final key = idempotencyKey ?? refId;
     try {
       await db.insert('coin_ledger', {
         'id': SyncIdentity.newUuid(),
         'delta': amount,
         'reason': reason,
         'ref_id': refId,
+        'idempotency_key': key,
         'created_at': now,
       });
     } on DatabaseException catch (e) {
-      // Unique ref_id prevents duplicate rewards at DB level.
-      if (refId == null || !e.isUniqueConstraintError()) rethrow;
+      if (!e.isUniqueConstraintError()) rethrow;
     }
     return fetchCoinBalance(db: db);
   }
@@ -1116,29 +1189,33 @@ WHERE name = ?
     required int amount,
     required String reason,
     String? refId,
+    String? idempotencyKey,
     int? createdAt,
   }) async {
     if (amount <= 0) return await fetchCoinBalance();
     final db = await instance.database;
     final now = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    final key = idempotencyKey ?? refId;
     return db.transaction<int>((txn) async {
-      final res = await txn.rawQuery(
-        'SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger',
-      );
-      final balance = Sqflite.firstIntValue(res) ?? 0;
-      if (balance < amount) {
-        throw StateError('Insufficient coins: have $balance, need $amount');
+      if (key != null) {
+        final existing = await txn.query('coin_ledger', columns: ['id'], where: 'idempotency_key = ?', whereArgs: [key], limit: 1);
+        if (existing.isNotEmpty) {
+          final bal = await txn.rawQuery('SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger');
+          return Sqflite.firstIntValue(bal) ?? 0;
+        }
       }
+      final res = await txn.rawQuery('SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger');
+      final balance = Sqflite.firstIntValue(res) ?? 0;
+      if (balance < amount) throw StateError('Insufficient coins: have $balance, need $amount');
       await txn.insert('coin_ledger', {
         'id': SyncIdentity.newUuid(),
         'delta': -amount,
         'reason': reason,
         'ref_id': refId,
+        'idempotency_key': key,
         'created_at': now,
       });
-      final after = await txn.rawQuery(
-        'SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger',
-      );
+      final after = await txn.rawQuery('SELECT COALESCE(SUM(delta), 0) AS balance FROM coin_ledger');
       return Sqflite.firstIntValue(after) ?? 0;
     });
   }

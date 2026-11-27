@@ -110,6 +110,55 @@ class GamificationService extends ChangeNotifier {
 
   bool isRewardUnlocked(int lvl) => level >= lvl;
 
+  static const String _ownedUnlocksKey = 'owned_unlocks';
+  static const String _selectedTitleKey = 'selected_title';
+  static const String _selectedNoteColorKey = 'selected_note_color';
+  static const String _selectedPinStyleKey = 'selected_pin_style';
+
+  Set<String> _ownedUnlocks = {'Starter'};
+  String _selectedTitle = 'Starter';
+  String _selectedNoteColor = 'default';
+  String _selectedPinStyle = 'default';
+
+  Set<String> get ownedUnlocks => _ownedUnlocks;
+  String get selectedTitle => _selectedTitle;
+  String get selectedNoteColor => _selectedNoteColor;
+  String get selectedPinStyle => _selectedPinStyle;
+
+  bool isUnlockOwned(String name) => _ownedUnlocks.contains(name);
+  bool canUseUnlock(String name) {
+    final r = levelRewards.where((e) => e.name == name).toList();
+    if (r.isEmpty) return false;
+    return isRewardUnlocked(r.first.level) && isUnlockOwned(name);
+  }
+
+  Future<void> _loadUnlocks(Map<String, String> meta) async {
+    _ownedUnlocks = {'Starter'};
+    final raw = meta[_ownedUnlocksKey] ?? '';
+    if (raw.isNotEmpty) {
+      try { final d = jsonDecode(raw); if (d is List) _ownedUnlocks.addAll(d.map((e)=>e.toString())); } catch (_) {}
+    }
+    for (final r in levelRewards) { if (level >= r.level) _ownedUnlocks.add(r.name); }
+    _selectedTitle = meta[_selectedTitleKey] ?? 'Starter';
+    _selectedNoteColor = meta[_selectedNoteColorKey] ?? 'default';
+    _selectedPinStyle = meta[_selectedPinStyleKey] ?? 'default';
+    if (!canUseUnlock(_selectedTitle)) _selectedTitle = 'Starter';
+  }
+
+  Future<void> selectUnlock(String name) async {
+    final r = levelRewards.where((e)=>e.name==name).toList();
+    if (r.isEmpty || !canUseUnlock(name)) return;
+    final reward = r.first;
+    if (reward.type == 'cosmetic_title') _selectedTitle = name;
+    if (reward.type == 'note_color') _selectedNoteColor = name;
+    if (reward.type == 'pin_style') _selectedPinStyle = name;
+    await _saveMetaKey(_selectedTitleKey, _selectedTitle);
+    await _saveMetaKey(_selectedNoteColorKey, _selectedNoteColor);
+    await _saveMetaKey(_selectedPinStyleKey, _selectedPinStyle);
+    await _saveMetaKey(_ownedUnlocksKey, jsonEncode(_ownedUnlocks.toList()));
+    notifyListeners();
+  }
+
   /// Calculates level based on XP.
   /// Level 1: 0-50 XP
   /// Level 2: 51-150 XP (+100)
@@ -192,9 +241,9 @@ class GamificationService extends ChangeNotifier {
       }
 
       _totalXp = int.tryParse(meta['total_xp'] ?? '') ?? 0;
-      _currentGoal = (int.tryParse(meta['current_goal'] ?? '') ?? 4).clamp(4, 8);
+      _currentGoal = (int.tryParse(meta['current_goal'] ?? '') ?? 4).clamp(1, 20);
       _isGoalFixed = meta['is_goal_fixed'] == 'true';
-      _fixedGoalValue = (int.tryParse(meta['fixed_goal_value'] ?? '') ?? 4).clamp(4, 8);
+      _fixedGoalValue = (int.tryParse(meta['fixed_goal_value'] ?? '') ?? 4).clamp(1, 20);
       _consecutiveGoalHitDays = int.tryParse(meta['consecutive_goal_hit_days'] ?? '') ?? 0;
       _streak = int.tryParse(meta['streak'] ?? '') ?? 0;
       _restDaysUsedThisWeek = int.tryParse(meta['rest_days_used_this_week'] ?? '') ?? 0;
@@ -211,6 +260,7 @@ class GamificationService extends ChangeNotifier {
           }
         } catch (_) {}
       }
+      await _loadUnlocks(meta);
 
       final now = DateTime.now();
       final currentWeek = _getWeekIdentifier(now);
@@ -327,13 +377,11 @@ class GamificationService extends ChangeNotifier {
     }
   }
 
-  /// Sets fixed daily goal or allows auto-progression.
+  /// Sets daily goal target. Part 1: user-settable per-day target (1-20).
   Future<void> setGoalSettings({required bool isFixed, required int goalValue}) async {
     _isGoalFixed = isFixed;
-    _fixedGoalValue = goalValue.clamp(4, 8);
-    if (!isFixed) {
-      _currentGoal = goalValue.clamp(4, 8);
-    }
+    _fixedGoalValue = goalValue.clamp(1, 20);
+    _currentGoal = goalValue.clamp(1, 20);
     await _saveMetaKey('is_goal_fixed', '$_isGoalFixed');
     await _saveMetaKey('fixed_goal_value', '$_fixedGoalValue');
     await _saveMetaKey('current_goal', '$_currentGoal');
@@ -391,10 +439,11 @@ class GamificationService extends ChangeNotifier {
         'consecutive_goal_hit_days',
         '$_consecutiveGoalHitDays',
       );
-      if (!_isGoalFixed && _consecutiveGoalHitDays >= 5 && _currentGoal < 8) {
-        _currentGoal = math.min(8, _currentGoal + 1);
+      if (!_isGoalFixed && _consecutiveGoalHitDays >= 5 && _currentGoal < 20) {
+        _currentGoal = math.min(20, _currentGoal + 1);
         _consecutiveGoalHitDays = 0;
         await _saveMetaKey('current_goal', '$_currentGoal');
+        await _saveMetaKey('fixed_goal_value', '$_currentGoal');
         await _saveMetaKey('consecutive_goal_hit_days', '0');
       }
     }
@@ -504,6 +553,8 @@ class GamificationService extends ChangeNotifier {
         'level_up',
       );
       coinsEarned += levelUpCoinReward;
+      final reward = rewardForLevel(newLevel);
+      if (reward != null) { _ownedUnlocks.add(reward.name); await _saveMetaKey(_ownedUnlocksKey, jsonEncode(_ownedUnlocks.toList())); }
     }
 
     try {
