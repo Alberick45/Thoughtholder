@@ -154,7 +154,8 @@ CREATE TABLE thoughts (
   next_sub_step_index INTEGER DEFAULT 0,
   goal_target INTEGER,
   goal_unit TEXT,
-  intent_confidence REAL DEFAULT 0
+  intent_confidence REAL DEFAULT 0,
+  sort_last_shown_at INTEGER
 )
 ''');
 

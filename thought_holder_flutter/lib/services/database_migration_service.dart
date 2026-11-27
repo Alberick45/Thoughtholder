@@ -316,6 +316,9 @@ class DatabaseMigrationService {
             await db.execute('ALTER TABLE thoughts ADD COLUMN $col');
           }
         }
+        if (!await _hasColumn(db, 'thoughts', 'sort_last_shown_at')) {
+          await db.execute('ALTER TABLE thoughts ADD COLUMN sort_last_shown_at INTEGER');
+        }
         if (!await _hasColumn(db, 'coin_ledger', 'idempotency_key')) {
           await db.execute('ALTER TABLE coin_ledger ADD COLUMN idempotency_key TEXT');
         }

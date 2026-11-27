@@ -10,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'thought_provider.dart';
 import 'stream_screen.dart';
 import 'capture_screen.dart';
+import 'games/sort_game_screen.dart';
 import 'settings_modal.dart';
 import 'google_drive_service.dart';
 import 'sender_service.dart';
@@ -483,6 +484,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final currentIndex = nav.mainTabIndex;
     final bool isBucketOpen = (currentIndex == 1 && nav.streamSubTab == 'sorted' && nav.selectedBucket != null);
     final bool isBoardFullscreen = (currentIndex == 1 && nav.isBoardExpanded && !nav.isTrashOpen && nav.selectedBucket == null);
+    final bool isSortTab = currentIndex == 2;
 
     final liveIndex = _liveMainPage.round().clamp(0, 1);
 
@@ -554,10 +556,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
           body: SwipeTabs(
             currentIndex: currentIndex,
-            tabLabels: const ['Speak', 'Board'],
+            tabLabels: const ['Speak', 'Board', 'Sort'],
             enabled: settings.swipeCaptureStream &&
                 !isBucketOpen &&
                 !nav.isTrashOpen &&
+                !isSortTab &&
                 !bgRecording.isRecording &&
                 MediaQuery.viewInsetsOf(context).bottom == 0,
             thresholdFraction: settings.swipeThresholdFraction,
@@ -574,6 +577,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             children: const [
               CaptureScreen(),
               StreamScreen(),
+              SortGameScreen(),
             ],
           ),
           bottomNavigationBar: isBucketOpen
@@ -599,26 +603,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               items: [
                 BottomNavigationBarItem(
-                  icon: Semantics(
-                    label: 'Speak, tab 1 of 2${liveIndex == 0 ? ', selected' : ''}',
-                    child: const Icon(Icons.mic_outlined, size: 26),
-                  ),
-                  activeIcon: Semantics(
-                    label: 'Speak, tab 1 of 2, selected',
-                    child: const Icon(Icons.mic, size: 26),
-                  ),
+                  icon: Semantics(label: 'Speak, tab 1 of 3${liveIndex == 0 ? ', selected' : ''}', child: const Icon(Icons.mic_outlined, size: 26)),
+                  activeIcon: Semantics(label: 'Speak, tab 1 of 3, selected', child: const Icon(Icons.mic, size: 26)),
                   label: 'Speak',
                 ),
                 BottomNavigationBarItem(
-                  icon: Semantics(
-                    label: 'Board, tab 2 of 2${liveIndex == 1 ? ', selected' : ''}',
-                    child: const Icon(Icons.push_pin_outlined, size: 26),
-                  ),
-                  activeIcon: Semantics(
-                    label: 'Board, tab 2 of 2, selected',
-                    child: const Icon(Icons.push_pin, size: 26),
-                  ),
+                  icon: Semantics(label: 'Board, tab 2 of 3${liveIndex == 1 ? ', selected' : ''}', child: const Icon(Icons.push_pin_outlined, size: 26)),
+                  activeIcon: Semantics(label: 'Board, tab 2 of 3, selected', child: const Icon(Icons.push_pin, size: 26)),
                   label: 'Board',
+                ),
+                BottomNavigationBarItem(
+                  icon: Semantics(label: 'Sort, tab 3 of 3${liveIndex == 2 ? ', selected' : ''}', child: const Icon(Icons.swap_horiz, size: 26)),
+                  activeIcon: Semantics(label: 'Sort, tab 3 of 3, selected', child: const Icon(Icons.swap_horiz, size: 26)),
+                  label: 'Sort',
                 ),
               ],
             ),

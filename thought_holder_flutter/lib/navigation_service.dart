@@ -29,7 +29,6 @@ class NavigationNotifier extends ChangeNotifier {
     if (_mainTabIndex != index) {
       _mainTabIndex = index;
       if (index == 1) {
-        // Switching to Board tab defaults to the Full Sticky Note Board
         _isBoardExpanded = true;
         _streamSubTab = 'sorted';
         _selectedBucket = null;
