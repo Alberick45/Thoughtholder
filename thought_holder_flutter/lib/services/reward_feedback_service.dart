@@ -4,10 +4,21 @@ import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../settings_service.dart';
 import '../sound_service.dart';
+import '../utils/global_error_handler.dart';
 import 'gamification_service.dart';
 
 class RewardFeedbackService {
   static String _lastDailyGoalDate = '';
+
+  static void _log(String msg) {
+    debugPrint('[RewardFeedback] $msg');
+  }
+
+  static BuildContext? _rootContext(BuildContext? fallback) {
+    final ctx = GlobalErrorHandler.navigatorKey.currentContext ?? fallback;
+    _log('rootContext=${ctx != null} fallbackMounted=${fallback?.mounted ?? false}');
+    return ctx;
+  }
 
   static bool _reduce(SettingsService? settings, BuildContext? context) {
     if (settings?.reduceAnimations == true) return true;
@@ -31,42 +42,92 @@ class RewardFeedbackService {
     required int xp,
     required SettingsService settings,
   }) {
-    if (xp <= 0) return;
+    _log('showTaskReward xp=$xp');
+    if (xp <= 0) {
+      _log('showTaskReward skipped: xp<=0');
+      return;
+    }
     haptic(settings);
     SoundService.instance.play(SoundEvent.done, settings: settings);
-    final reduce = _reduce(settings, context);
-    final overlay = Overlay.maybeOf(context);
-    if (overlay == null) return;
+    final root = _rootContext(context);
+    final reduce = _reduce(settings, root);
+    final overlay = root != null ? Overlay.maybeOf(root) : Overlay.maybeOf(context);
+    _log('showTaskReward overlay=${overlay != null} reduce=$reduce');
+    if (overlay == null) {
+      _log('showTaskReward early-return: no overlay');
+      return;
+    }
     late OverlayEntry entry;
     entry = OverlayEntry(
-      builder: (_) => _FloatingXp(xp: xp, reduce: reduce, onDone: () => entry.remove()),
+      builder: (_) => _FloatingXp(xp: xp, reduce: reduce, onDone: () {
+        _log('showTaskReward float removed');
+        entry.remove();
+      }),
     );
     overlay.insert(entry);
+    _log('showTaskReward float inserted');
   }
 
   static Future<void> maybeShowDailyGoal(
     BuildContext context, {
     required GamificationService game,
     required SettingsService settings,
+    bool ignoreDateGuard = false,
   }) async {
     final today = DateTime.now();
     final key = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-    if (settings.lastDailyGoalCelebratedDate == key || _lastDailyGoalDate == key) return;
-    if (!game.isDailyGoalReached) return;
-    _lastDailyGoalDate = key;
-    await settings.setLastDailyGoalCelebratedDate(key);
+    final persisted = settings.lastDailyGoalCelebratedDate == key;
+    final inMemory = _lastDailyGoalDate == key;
+    _log('maybeShowDailyGoal key=$key persisted=$persisted inMemory=$inMemory reached=${game.isDailyGoalReached} ignoreDateGuard=$ignoreDateGuard');
+    if (!ignoreDateGuard && (persisted || inMemory)) {
+      _log('maybeShowDailyGoal early-return: date guard');
+      return;
+    }
+    if (!game.isDailyGoalReached && !ignoreDateGuard) {
+      _log('maybeShowDailyGoal early-return: goal not reached');
+      return;
+    }
+    if (!ignoreDateGuard) {
+      _lastDailyGoalDate = key;
+      await settings.setLastDailyGoalCelebratedDate(key);
+    }
     haptic(settings, heavy: true);
     SoundService.instance.play(SoundEvent.celebrate, settings: settings);
-    if (!context.mounted) return;
-    final reduce = _reduce(settings, context);
+    final root = _rootContext(context);
+    if (root == null) {
+      _log('maybeShowDailyGoal early-return: no root context');
+      return;
+    }
+    final reduce = _reduce(settings, root);
+    _log('maybeShowDailyGoal showing dialog reduce=$reduce');
     await showGeneralDialog<void>(
-      context: context,
+      context: root,
       barrierDismissible: true,
       barrierLabel: 'Daily goal complete',
       barrierColor: Colors.black54,
       transitionDuration: Duration(milliseconds: reduce ? 0 : 250),
       pageBuilder: (ctx, _, __) => _DailyGoalDialog(game: game, reduce: reduce),
     );
+    _log('maybeShowDailyGoal dialog closed');
+  }
+
+  static Future<void> previewTaskReward(BuildContext context, {required SettingsService settings}) async {
+    showTaskReward(context, xp: 20, settings: settings);
+  }
+
+  static Future<void> previewDailyGoal(BuildContext context, {required GamificationService game, required SettingsService settings}) async {
+    await maybeShowDailyGoal(context, game: game, settings: settings, ignoreDateGuard: true);
+  }
+
+  static Future<void> previewLevelUp(BuildContext context, {required SettingsService settings}) async {
+    final event = RewardEvent(xpEarned: 0, coinsEarned: 20, leveledUp: true, level: gameLevelForPreview(settings), unlockName: 'Preview Unlock');
+    await maybeShowLevelUp(context, event: event, settings: settings);
+  }
+
+  static int gameLevelForPreview(SettingsService _) => GamificationService.instance.level;
+
+  static void resetDailyGoalCelebrationMemory() {
+    _lastDailyGoalDate = '';
   }
 
   static Future<void> maybeShowLevelUp(
@@ -74,19 +135,28 @@ class RewardFeedbackService {
     required RewardEvent event,
     required SettingsService settings,
   }) async {
-    if (!event.leveledUp) return;
+    _log('maybeShowLevelUp leveledUp=${event.leveledUp} level=${event.level}');
+    if (!event.leveledUp) {
+      _log('maybeShowLevelUp early-return: not leveledUp');
+      return;
+    }
     haptic(settings, heavy: true);
     SoundService.instance.play(SoundEvent.celebrate, settings: settings);
-    if (!context.mounted) return;
-    final reduce = _reduce(settings, context);
+    final root = _rootContext(context);
+    if (root == null) {
+      _log('maybeShowLevelUp early-return: no root context');
+      return;
+    }
+    final reduce = _reduce(settings, root);
     await showGeneralDialog<void>(
-      context: context,
+      context: root,
       barrierDismissible: true,
       barrierLabel: 'Level up',
       barrierColor: Colors.black54,
       transitionDuration: Duration(milliseconds: reduce ? 0 : 250),
       pageBuilder: (ctx, _, __) => _LevelUpDialog(event: event, reduce: reduce),
     );
+    _log('maybeShowLevelUp dialog closed');
   }
 }
 

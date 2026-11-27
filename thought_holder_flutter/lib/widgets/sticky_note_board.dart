@@ -9,6 +9,7 @@ import '../sound_service.dart';
 import '../thought_provider.dart';
 import '../utils/title_generator.dart';
 import '../utils/app_toast.dart';
+import '../utils/global_error_handler.dart';
 import 'sticky_note_bucket_picker.dart';
 
 /// 8 Pastel post-it colors matching the design in Image 2
@@ -317,23 +318,28 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         setState(() => _peelingThoughtId = id);
         final reduce = settings.reduceAnimations || (MediaQuery.maybeOf(context)?.disableAnimations ?? false);
         await Future.delayed(Duration(milliseconds: reduce ? 0 : 260));
+        final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+        debugPrint('[RewardFlow] board.markDone id=$id mounted=$mounted');
         final xp = await provider.markDone(id, true);
+        debugPrint('[RewardFlow] board.markDone xp=$xp');
+        final reward = GamificationService.instance.consumePendingRewardEvent();
+        debugPrint('[RewardFlow] board.consume reward=${reward != null} xp=${reward?.xpEarned} coins=${reward?.coinsEarned} goal=${reward?.dailyGoalReached} levelUp=${reward?.leveledUp}');
         if (mounted) {
-          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
-          final reward = GamificationService.instance.consumePendingRewardEvent();
-          if (reward != null) {
-            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
-            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
-          }
-          final summary = GamificationService.instance.getSummaryString();
-          AppToast.show(
-            context,
-            message: xp > 0 ? 'Marked done! +$xp XP ($summary)' : 'Marked "$title" as done',
-          );
           setState(() {
             _peelingThoughtId = null;
             _lastFreedSlotIndex = 0;
           });
+        }
+        if (rootCtx.mounted) {
+          RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
+          if (reward != null) {
+            await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
+            await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
+          } else {
+            await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
+          }
+        } else {
+          debugPrint('[RewardFlow] board early-return: rootCtx not mounted');
         }
         break;
       case 'split':
@@ -1214,8 +1220,10 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                           border: Border.all(color: const Color(0xFF333B48)),
                         ),
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('?? ', style: TextStyle(fontSize: 13)),
+                            const Icon(Icons.local_fire_department, color: Color(0xFFFF8A65), size: 14),
+                            const SizedBox(width: 4),
                             Text(
                               '${gamification.streak} day streak',
                               style: appFont(
@@ -3045,19 +3053,23 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                   Navigator.pop(ctx);
                                   setState(() => _peelingThoughtId = id);
                                   await Future.delayed(const Duration(milliseconds: 260));
+                                  final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+                                  debugPrint('[RewardFlow] popup.markDone id=$id');
                                   final xp = await provider.markDone(id, true);
-                                  SoundService.instance.play(SoundEvent.save,
-                                      settings: settings);
+                                  final reward = GamificationService.instance.consumePendingRewardEvent();
+                                  debugPrint('[RewardFlow] popup.consume reward=${reward != null}');
                                   if (mounted) {
-                                    final summary = GamificationService.instance.getSummaryString();
-                                    AppToast.show(
-                                      context,
-                                      message: xp > 0 ? 'Marked done! +$xp XP ($summary)' : 'Marked "$title" as done',
-                                    );
                                     setState(() {
                                       _peelingThoughtId = null;
                                       _lastFreedSlotIndex = 0;
                                     });
+                                  }
+                                  if (rootCtx.mounted) {
+                                    RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
+                                    if (reward != null) {
+                                      await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
+                                    }
+                                    await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
                                   }
                                 },
                               ),
@@ -3236,10 +3248,17 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             color: const Color(0xFFFFD54F),
             onTap: () async {
               setState(() => _selectedThoughtId = null);
-              await provider.markDone(id, true);
-              SoundService.instance.play(SoundEvent.save, settings: settings);
-              if (mounted) {
-                AppToast.show(context, message: 'Marked "$title" as done');
+              final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+              debugPrint('[RewardFlow] mini.markDone id=$id');
+              final xp = await provider.markDone(id, true);
+              final reward = GamificationService.instance.consumePendingRewardEvent();
+              debugPrint('[RewardFlow] mini.consume reward=${reward != null}');
+              if (rootCtx.mounted) {
+                RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
+                if (reward != null) {
+                  await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
+                }
+                await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
               }
             },
           ),

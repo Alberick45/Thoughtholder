@@ -66,6 +66,11 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
         return;
       }
 
+      final note = AppUpdateService.instance.lastCheckNote;
+      if (note != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
+      }
+
       final isAvail = await AppUpdateService.instance.isUpdateAvailable(
         manifest: manifest,
         settings: settings,
@@ -253,7 +258,7 @@ class _UpdatesGroupScreenState extends State<UpdatesGroupScreen> {
                     )
                   : const Icon(Icons.refresh, color: Colors.black),
               label: Text(
-                _isChecking ? 'Checking for updates…' : 'Check for updates',
+                _isChecking ? 'Checking for updates...' : 'Check for updates',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,

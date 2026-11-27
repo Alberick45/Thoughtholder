@@ -109,6 +109,9 @@ class AppUpdateService extends ChangeNotifier {
   // Hardcoded baseline version as safe fallback
   static const String fallbackVersion = '1.2.0';
   static const int fallbackBuild = 3;
+  static const String _pendingUpdateTargetVersionKey = 'pending_update_target_version';
+  static const String _pendingUpdateTargetBuildKey = 'pending_update_target_build';
+  static const String _lastInstalledVersionKey = 'last_installed_version_seen';
 
   AppInstalledVersion? _cachedVersion;
   VersionManifest? _latestManifest;
@@ -118,9 +121,11 @@ class AppUpdateService extends ChangeNotifier {
   );
   bool _isCancelled = false;
   http.Client? _activeClient;
+  String? _lastCheckNote;
 
   UpdateProgress get progress => _progress;
   VersionManifest? get latestManifest => _latestManifest;
+  String? get lastCheckNote => _lastCheckNote;
 
   static List<int> _parseSemVer(String version) {
     var v = version.trim();
@@ -200,11 +205,13 @@ class AppUpdateService extends ChangeNotifier {
 
   /// Fetches the latest release manifest from GitHub Releases.
   /// Returns null only for automatic cooldown-suppressed checks (manual=false, checked <24h ago).
-  /// Throws [UpdateCheckException] for real failures (timeout, DNS, HTTP, bad JSON, network).
+  /// Throws [UpdateCheckException] for real failures (timeout, DNS, bad JSON, network),
+  /// except beta 404 which falls back to stable with a non-error note.
   Future<VersionManifest?> checkForUpdates({
     required SettingsService settings,
     bool manual = false,
   }) async {
+    _lastCheckNote = null;
     // If not manual, enforce max once per 24h
     if (!manual) {
       final lastCheck = settings.lastUpdateCheckTime;
@@ -217,12 +224,47 @@ class AppUpdateService extends ChangeNotifier {
       }
     }
 
-    final url = settings.betaUpdatesEnabled
-        ? UpdateConfig.betaManifestUrl
-        : UpdateConfig.stableManifestUrl;
+    final betaEnabled = settings.betaUpdatesEnabled;
+    final primaryUrl = betaEnabled ? UpdateConfig.betaManifestUrl : UpdateConfig.stableManifestUrl;
+    await _logUpdateCheck('manifest request: GET $primaryUrl (manual=$manual, beta=$betaEnabled)');
 
-    await _logUpdateCheck('manifest request: GET $url (manual=$manual)');
+    VersionManifest primary;
+    try {
+      primary = await _fetchManifestFromUrl(primaryUrl);
+      await _logUpdateCheck('manifest selected: $primaryUrl (version=${primary.version}, build=${primary.build})');
+    } on UpdateCheckException catch (e) {
+      if (betaEnabled && e.kind == UpdateCheckFailureKind.http && e.statusCode == 404) {
+        await _logUpdateCheck('beta manifest missing (HTTP 404): $primaryUrl; falling back to ${UpdateConfig.stableManifestUrl}');
+        final stable = await _fetchManifestFromUrl(UpdateConfig.stableManifestUrl);
+        _lastCheckNote = 'No beta release published, using stable';
+        await _logUpdateCheck('manifest selected: ${UpdateConfig.stableManifestUrl} (fallback from beta 404, version=${stable.version}, build=${stable.build})');
+        _latestManifest = stable;
+        await settings.setLastUpdateCheckTime(DateTime.now());
+        return stable;
+      }
+      rethrow;
+    }
 
+    if (betaEnabled) {
+      try {
+        final stable = await _fetchManifestFromUrl(UpdateConfig.stableManifestUrl);
+        final cmp = compareSemVer(stable.version, primary.version);
+        final stableNewer = cmp > 0 || (cmp == 0 && stable.build > primary.build);
+        if (stableNewer) {
+          await _logUpdateCheck('manifest selected: ${UpdateConfig.stableManifestUrl} (stable newer than beta ${primary.version}/${primary.build})');
+          primary = stable;
+        }
+      } catch (e) {
+        await _logUpdateCheck('stable comparison fetch failed after beta success: $e');
+      }
+    }
+
+    _latestManifest = primary;
+    await settings.setLastUpdateCheckTime(DateTime.now());
+    return primary;
+  }
+
+  Future<VersionManifest> _fetchManifestFromUrl(String url) async {
     http.Response resp;
     try {
       resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
@@ -253,7 +295,6 @@ class AppUpdateService extends ChangeNotifier {
       );
     }
 
-    await settings.setLastUpdateCheckTime(DateTime.now());
     await _logUpdateCheck('manifest response: HTTP ${resp.statusCode} from $url');
 
     if (resp.statusCode != 200) {
@@ -274,8 +315,7 @@ class AppUpdateService extends ChangeNotifier {
       if (manifest.version.trim().isEmpty) {
         throw const FormatException('manifest version is empty');
       }
-      _latestManifest = manifest;
-      return _latestManifest;
+      return manifest;
     } catch (e) {
       await _logUpdateCheck('manifest bad JSON: $url ($e)');
       throw UpdateCheckException(
@@ -284,6 +324,36 @@ class AppUpdateService extends ChangeNotifier {
         manifestUrl: url,
       );
     }
+  }
+
+  Future<String?> checkPostUpdateOutcome(SettingsService settings) async {
+    final installed = await getInstalledVersion();
+    final box = settings.box;
+    final seen = box.get(_lastInstalledVersionKey)?.toString();
+    final current = '${installed.versionName}+${installed.buildNumber}';
+    final pendingVersion = box.get(_pendingUpdateTargetVersionKey)?.toString();
+    final pendingBuild = box.get(_pendingUpdateTargetBuildKey);
+    String? message;
+
+    if (pendingVersion != null && pendingVersion.isNotEmpty) {
+      final pending = '$pendingVersion+${pendingBuild ?? ''}';
+      final changed = seen != null && seen != current;
+      if (changed || installed.versionName == pendingVersion) {
+        message = 'Updated to v${installed.versionName}';
+      } else {
+        message = 'Update did not install. See log';
+      }
+      await box.delete(_pendingUpdateTargetVersionKey);
+      await box.delete(_pendingUpdateTargetBuildKey);
+    }
+
+    await box.put(_lastInstalledVersionKey, current);
+    return message;
+  }
+
+  String get windowsUpdateLogPath {
+    final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
+    return p.join(tempDir, 'thoughtholder-update.log');
   }
 
   /// Evaluates whether an update is available and should be presented.
@@ -352,7 +422,7 @@ class AppUpdateService extends ChangeNotifier {
     if (isVoiceCaptureActive(recordingService)) {
       _progress = const UpdateProgress(
         stage: UpdateStage.waitingForVoiceCapture,
-        statusMessage: 'Waiting for voice note to be saved and transcribed…',
+        statusMessage: 'Waiting for voice note to be saved and transcribed...',
       );
       notifyListeners();
 
@@ -425,7 +495,7 @@ class AppUpdateService extends ChangeNotifier {
     // STEP 4: Download with progress
     _progress = UpdateProgress(
       stage: UpdateStage.downloading,
-      statusMessage: 'Starting download…',
+      statusMessage: 'Starting download...',
       backupSummary: backupSummary,
     );
     notifyListeners();
@@ -465,7 +535,7 @@ class AppUpdateService extends ChangeNotifier {
           downloadFraction: fraction,
           downloadedBytes: received,
           totalBytes: contentLength,
-          statusMessage: 'Downloading update…',
+          statusMessage: 'Downloading update...',
           backupSummary: backupSummary,
         );
         notifyListeners();
@@ -491,7 +561,7 @@ class AppUpdateService extends ChangeNotifier {
     // STEP 5: SHA-256 verification
     _progress = UpdateProgress(
       stage: UpdateStage.verifying,
-      statusMessage: 'Checking the file is safe…',
+      statusMessage: 'Checking the file is safe...',
       backupSummary: backupSummary,
     );
     notifyListeners();
@@ -531,21 +601,23 @@ class AppUpdateService extends ChangeNotifier {
     // STEP 6: Install and restart
     _progress = UpdateProgress(
       stage: UpdateStage.readyToInstall,
-      statusMessage: 'Installing and restarting…',
+      statusMessage: 'Installing update... ThoughtHolder will reopen',
       backupSummary: backupSummary,
     );
     notifyListeners();
+    await _logUpdateCheck('installing update: ${manifest.version}+${manifest.build}, target=${downloadFile.path}');
 
     try {
+      final box = settings.box;
+      await box.put(_pendingUpdateTargetVersionKey, manifest.version);
+      await box.put(_pendingUpdateTargetBuildKey, manifest.build);
       if (Platform.isAndroid) {
-        // Android install via FileProvider
         final canInstall = await _updaterChannel.invokeMethod<bool>('canRequestPackageInstalls') ?? true;
         if (!canInstall) {
           await _updaterChannel.invokeMethod('openInstallPermissionSettings');
         }
         await _updaterChannel.invokeMethod('installApk', {'filePath': downloadFile.path});
       } else if (Platform.isWindows) {
-        // Windows silent install and close app
         final tempDir = Platform.environment['TEMP'] ?? Directory.systemTemp.path;
         final logPath = p.join(tempDir, 'thoughtholder-update.log');
         await Process.start(
@@ -559,7 +631,7 @@ class AppUpdateService extends ChangeNotifier {
           ],
           mode: ProcessStartMode.detached,
         );
-        // Terminate app immediately so installer can replace binaries smoothly
+        await Future.delayed(const Duration(seconds: 2));
         exit(0);
       }
     } catch (e) {

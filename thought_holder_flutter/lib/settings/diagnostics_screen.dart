@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/self_check_service.dart';
+import '../services/reward_feedback_service.dart';
+import '../services/gamification_service.dart';
 import '../settings_service.dart';
 import '../thought_provider.dart';
 import 'group_page_scaffold.dart';
@@ -460,6 +462,40 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                             ),
                           ),
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Developer previews',
+                    style: appFont(color: colors.text, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => RewardFeedbackService.previewTaskReward(context, settings: settings),
+                        child: const Text('Preview task done'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => RewardFeedbackService.previewDailyGoal(context, game: GamificationService.instance, settings: settings),
+                        child: const Text('Preview daily goal'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => RewardFeedbackService.previewLevelUp(context, settings: settings),
+                        child: const Text('Preview level-up'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () async {
+                          await settings.setLastDailyGoalCelebratedDate('');
+                          RewardFeedbackService.resetDailyGoalCelebrationMemory();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Daily goal celebration flag reset')));
+                          }
+                        },
+                        child: const Text("Reset today's celebration flag"),
                       ),
                     ],
                   ),

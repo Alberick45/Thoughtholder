@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'settings_service.dart';
@@ -138,24 +139,27 @@ class SoundService extends ChangeNotifier {
       await _player!.setReleaseMode(ReleaseMode.stop);
       await _player!.setPlayerMode(PlayerMode.lowLatency);
 
-      // Configure audio context to NEVER duck or pause user's music on mobile
-      await AudioPlayer.global.setAudioContext(
-        AudioContext(
-          android: const AudioContextAndroid(
-            isSpeakerphoneOn: false,
-            stayAwake: false,
-            contentType: AndroidContentType.sonification,
-            usageType: AndroidUsageType.assistanceSonification,
-            audioFocus: AndroidAudioFocus.none, // Do NOT request audio focus; mix with other audio
+      // Configure audio context to avoid ducking/pausing user music on mobile.
+      // iOS-only options must not be applied on Windows/Linux; that caused silent fallback.
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        await AudioPlayer.global.setAudioContext(
+          AudioContext(
+            android: const AudioContextAndroid(
+              isSpeakerphoneOn: false,
+              stayAwake: false,
+              contentType: AndroidContentType.sonification,
+              usageType: AndroidUsageType.assistanceSonification,
+              audioFocus: AndroidAudioFocus.none,
+            ),
+            iOS: AudioContextIOS(
+              category: AVAudioSessionCategory.ambient,
+              options: const {
+                AVAudioSessionOptions.mixWithOthers,
+              },
+            ),
           ),
-          iOS: AudioContextIOS(
-            category: AVAudioSessionCategory.ambient,
-            options: const {
-              AVAudioSessionOptions.mixWithOthers,
-            },
-          ),
-        ),
-      );
+        );
+      }
 
       _isInitialized = true;
     } catch (e) {

@@ -112,6 +112,7 @@ class ThoughtHolderApp extends StatelessWidget {
 
     return MaterialApp(
       title: 'ThoughtHolder',
+      navigatorKey: GlobalErrorHandler.navigatorKey,
       scaffoldMessengerKey: GlobalErrorHandler.messengerKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -249,6 +250,28 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             );
           }
         } catch (_) {}
+      });
+
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (!mounted) return;
+        final updateMsg = await AppUpdateService.instance.checkPostUpdateOutcome(settings);
+        if (updateMsg != null && mounted) {
+          GlobalErrorHandler.messengerKey.currentState?.showSnackBar(
+            SnackBar(
+              content: Text(updateMsg),
+              behavior: SnackBarBehavior.floating,
+              action: updateMsg.startsWith('Update did not install')
+                  ? SnackBarAction(
+                      label: 'Open log',
+                      onPressed: () {
+                        final logPath = AppUpdateService.instance.windowsUpdateLogPath;
+                        Process.start('explorer.exe', ['/select,$logPath']);
+                      },
+                    )
+                  : null,
+            ),
+          );
+        }
       });
 
       // In-app update check: once per 24 hours on launch

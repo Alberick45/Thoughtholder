@@ -6,6 +6,8 @@ import 'app_logger.dart';
 class GlobalErrorHandler {
   static final GlobalKey<ScaffoldMessengerState> messengerKey =
       GlobalKey<ScaffoldMessengerState>();
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   static DateTime _lastErrorNotification = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -39,8 +41,9 @@ class GlobalErrorHandler {
     if (now.difference(_lastErrorNotification).inSeconds < 60) return;
     _lastErrorNotification = now;
 
-    final state = messengerKey.currentState;
-    if (state != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = messengerKey.currentState;
+      if (state == null) return;
       state.removeCurrentSnackBar();
       state.showSnackBar(
         const SnackBar(
@@ -52,6 +55,6 @@ class GlobalErrorHandler {
           behavior: SnackBarBehavior.floating,
         ),
       );
-    }
+    });
   }
 }

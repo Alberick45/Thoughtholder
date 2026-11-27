@@ -203,6 +203,7 @@ jobs:
             --notes-file "RELEASE_NOTES.md" \
             --repo "${{ github.repository }}" \
             --output "release_assets/version.json"
+          cp release_assets/version.json release_assets/version-beta.json
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -216,4 +217,5 @@ jobs:
             release_assets/thoughtholder-${{ env.VERSION }}.apk
             release_assets/thoughtholder-setup-${{ env.VERSION }}.exe
             release_assets/version.json
+            release_assets/version-beta.json
 

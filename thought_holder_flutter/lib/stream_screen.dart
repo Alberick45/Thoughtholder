@@ -22,6 +22,7 @@ import 'widgets/suggest_buckets_sheet.dart';
 import 'widgets/swipe_tabs.dart';
 import 'background_recording_service.dart';
 import 'utils/app_toast.dart';
+import 'utils/global_error_handler.dart';
 
 class StreamScreen extends StatefulWidget {
   const StreamScreen({super.key});
@@ -1599,14 +1600,17 @@ class _StreamScreenState extends State<StreamScreen> {
       ),
       onMarkDone: () async {
         final ideaName = TitleGenerator.getIdeaName(thought);
+        final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+        debugPrint('[RewardFlow] stream.startHere.markDone id=${thought['id']}');
         final xp = await provider.markDone(thought['id'], true);
-        if (context.mounted) {
-          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
-          final reward = GamificationService.instance.consumePendingRewardEvent();
+        final reward = GamificationService.instance.consumePendingRewardEvent();
+        debugPrint('[RewardFlow] stream.startHere.consume reward=${reward != null}');
+        if (rootCtx.mounted) {
+          RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
           if (reward != null) {
-            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
-            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+            await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
           }
+          await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
         }
         _showUndoSnackBar('Marked "$ideaName" as done', () {
           provider.markDone(thought['id'], false);
@@ -2378,14 +2382,17 @@ class _StreamScreenState extends State<StreamScreen> {
       onMoreOptions: () =>
           _showIdeaContextMenu(context, provider, idea, colors),
       onMarkDone: () async {
+        final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+        debugPrint('[RewardFlow] stream.ranked.markDone id=${idea['id']}');
         final xp = await provider.markDone(idea['id'], true);
-        if (context.mounted) {
-          RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
-          final reward = GamificationService.instance.consumePendingRewardEvent();
+        final reward = GamificationService.instance.consumePendingRewardEvent();
+        debugPrint('[RewardFlow] stream.ranked.consume reward=${reward != null}');
+        if (rootCtx.mounted) {
+          RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
           if (reward != null) {
-            await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
-            await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+            await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
           }
+          await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
         }
         _showUndoSnackBar('Marked "$ideaName" as done', () {
           provider.markDone(idea['id'], false);
@@ -2451,14 +2458,17 @@ class _StreamScreenState extends State<StreamScreen> {
           ),
           confirmDismiss: (direction) async {
             if (direction == DismissDirection.startToEnd) {
+              final rootCtx = GlobalErrorHandler.navigatorKey.currentContext ?? context;
+              debugPrint('[RewardFlow] stream.dismiss.markDone id=${idea['id']}');
               final xp = await provider.markDone(idea['id'], true);
-              if (context.mounted) {
-                RewardFeedbackService.showTaskReward(context, xp: xp, settings: settings);
-                final reward = GamificationService.instance.consumePendingRewardEvent();
+              final reward = GamificationService.instance.consumePendingRewardEvent();
+              debugPrint('[RewardFlow] stream.dismiss.consume reward=${reward != null}');
+              if (rootCtx.mounted) {
+                RewardFeedbackService.showTaskReward(rootCtx, xp: xp, settings: settings);
                 if (reward != null) {
-                  await RewardFeedbackService.maybeShowLevelUp(context, event: reward, settings: settings);
-                  await RewardFeedbackService.maybeShowDailyGoal(context, game: GamificationService.instance, settings: settings);
+                  await RewardFeedbackService.maybeShowLevelUp(rootCtx, event: reward, settings: settings);
                 }
+                await RewardFeedbackService.maybeShowDailyGoal(rootCtx, game: GamificationService.instance, settings: settings);
               }
               _showUndoSnackBar('Marked "$ideaName" as done', () {
                 provider.markDone(idea['id'], false);

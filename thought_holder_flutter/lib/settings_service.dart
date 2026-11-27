@@ -874,5 +874,7 @@ class SettingsService extends ChangeNotifier {
   Future<void> setLastUpdateCheckTime(DateTime dt) async {
     await _box.put('last_update_check_time', dt.millisecondsSinceEpoch);
   }
+
+  Box get box => _box;
 }
 
