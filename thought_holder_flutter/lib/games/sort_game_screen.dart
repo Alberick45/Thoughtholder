@@ -116,13 +116,28 @@ class _SortGameScreenState extends State<SortGameScreen> {
             const SizedBox(height: 8),
             TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search buckets...', isDense: true, border: OutlineInputBorder()), onChanged: (v)=>setState(()=>_bucketQuery=v)),
             const SizedBox(height: 8),
+            SizedBox(
+              height: 180,
+              child: buckets.isEmpty
+                ? const Center(child: Text('No buckets match. Create one.'))
+                : ListView.builder(
+                    itemCount: buckets.length,
+                    itemBuilder: (ctx, i) {
+                      final b = buckets[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: ElevatedButton(onPressed: ()=>_assign(b), child: Align(alignment: Alignment.centerLeft, child: Text(b))),
+                      );
+                    },
+                  ),
+            ),
+            const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
               ActionChip(avatar: const Icon(Icons.add, size: 18), label: const Text('New bucket'), onPressed: () async {
                 final colors = AppColors.of(Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light');
                 final name = await showCreateBucketSheet(context, provider, colors);
                 if (name != null && mounted) await _assign(name);
               }),
-              for (final b in buckets) ElevatedButton(onPressed: ()=>_assign(b), child: Text(b)),
               OutlinedButton(onPressed: _trash, child: const Text('Trash')),
               OutlinedButton(onPressed: _skip, child: const Text('Skip for now')),
             ]),
