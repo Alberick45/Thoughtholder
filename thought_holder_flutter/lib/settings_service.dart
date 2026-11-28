@@ -818,6 +818,23 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  int get sortGameSortedTodayCount => (_box.get('sort_game_sorted_today_count', defaultValue: 0) as num).toInt();
+  String get sortGameSortedTodayDate => (_box.get('sort_game_sorted_today_date', defaultValue: '') as String;
+
+  Future<void> recordSortGameSorted(int count) async {
+    final today = _todayDateString();
+    var current = sortGameSortedTodayDate == today ? sortGameSortedTodayCount : 0;
+    current += count;
+    await _box.put('sort_game_sorted_today_date', today);
+    await _box.put('sort_game_sorted_today_count', current);
+    notifyListeners();
+  }
+
+  int sortGameSortedToday() {
+    final today = _todayDateString();
+    return sortGameSortedTodayDate == today ? sortGameSortedTodayCount : 0;
+  }
+
   int get dailyGoalTarget => (_box.get('daily_goal_target', defaultValue: 4) as num).toInt().clamp(1, 20);
 
   Future<void> setDailyGoalTarget(int value) async {

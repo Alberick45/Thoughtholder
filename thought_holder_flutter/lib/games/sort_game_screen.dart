@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../app_theme.dart';
 import '../thought_provider.dart';
 import '../services/economy_config.dart';
+import '../settings_service.dart';
 import 'sort_game_service.dart';
 
 class SortGameScreen extends StatefulWidget {
@@ -30,14 +31,22 @@ class _SortGameScreenState extends State<SortGameScreen> {
 
   Future<void> _finishIfDone() async {
     if (_index < _items.length) return;
-    final required = _items.length;
-    final res = await SortGameService.instance.completeBatch(sortedIds: _sortedIds, requiredCount: required);
+    final settings = context.read<SettingsService>();
+    if (_sortedIds.isNotEmpty) {
+      await settings.recordSortGameSorted(_sortedIds.length);
+    }
+    final dailySorted = settings.sortGameSortedToday();
+    final requiredDaily = EconomyConfig.sortBatchSize;
+    final shouldAward = dailySorted >= requiredDaily && _sortedIds.isNotEmpty;
+    final res = shouldAward
+        ? await SortGameService.instance.completeBatch(sortedIds: _sortedIds, requiredCount: 1)
+        : await SortGameService.instance.completeBatch(sortedIds: const [], requiredCount: 999);
     if (!mounted) return;
-    final msg = res.sortedCount >= required
-        ? 'Sorted ${res.sortedCount}/$required. +${res.awardedCoins} coins${res.capReached ? ' (daily cap reached)' : ''}. Balance: ${res.newBalance}.'
-        : 'Sorted ${res.sortedCount}/$required. No coins awarded until all $required are sorted. You can leave and come back.';
+    final msg = shouldAward
+        ? 'Sorted ${_sortedIds.length} this batch. Today: $dailySorted/$requiredDaily. +${res.awardedCoins} coins${res.capReached ? ' (daily cap reached)' : ''}. Balance: ${res.newBalance}.'
+        : 'Sorted ${_sortedIds.length} this batch. Today: $dailySorted/$requiredDaily. Sort $requiredDaily total today to earn coins. You can leave and come back.';
     await showDialog(context: context, builder: (ctx)=>AlertDialog(
-      title: Text(res.sortedCount >= required ? 'Batch complete' : 'Batch paused'),
+      title: Text(shouldAward ? 'Progress saved' : 'Batch paused'),
       content: Text(msg),
       actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('OK'))],
     ));
@@ -86,11 +95,16 @@ class _SortGameScreenState extends State<SortGameScreen> {
         : _items.isEmpty ? Center(child: Column(mainAxisSize: MainAxisSize.min, children:[const Text('No unsorted items ready right now.'), const SizedBox(height:8), ElevatedButton(onPressed: _load, child: const Text('Refresh'))]))
         : _index >= _items.length ? const Center(child: Text('Batch done'))
         : Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children:[
-            Text('Item ${_index+1}/${_items.length}  •  +${EconomyConfig.sortBatchReward} coins only when all ${_items.length} sorted (cap ${EconomyConfig.dailySortCoinCap}/day)', style: const TextStyle(fontSize: 12)),
+            Builder(builder: (ctx){
+              final s = ctx.watch<SettingsService>();
+              final today = s.sortGameSortedToday();
+              final need = EconomyConfig.sortBatchSize;
+              return Text('Item ${_index+1}/${_items.length}  •  Today sorted: $today/$need for coins (cap ${EconomyConfig.dailySortCoinCap}/day)', style: const TextStyle(fontSize: 12));
+            }),
             const SizedBox(height: 12),
             Card(child: Padding(padding: const EdgeInsets.all(16), child: Text((_items[_index]['content'] ?? '').toString(), style: const TextStyle(fontSize: 18)))),
             const SizedBox(height: 12),
-            Text('Sorted: ${_sortedIds.length}/${_items.length} (need ${_items.length} for coins)', style: const TextStyle(fontSize: 12)),
+            Text('Sorted this batch: ${_sortedIds.length}', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final b in buckets) ElevatedButton(onPressed: ()=>_assign(b), child: Text(b)),
