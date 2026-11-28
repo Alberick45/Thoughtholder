@@ -94,11 +94,13 @@ class _IdeasGroupContentState extends State<IdeasGroupContent> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Order buckets by number of ideas or creation sequence.',
+          'Order buckets by number of ideas, creation, or alphabetically.',
           style: appFont(color: colors.mute, fontSize: 13),
         ),
         const SizedBox(height: 10),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             _buildOption(
               label: 'Most ideas first',
@@ -106,11 +108,16 @@ class _IdeasGroupContentState extends State<IdeasGroupContent> {
               onTap: () => settings.setBucketOrder('ideas'),
               colors: colors,
             ),
-            const SizedBox(width: 8),
             _buildOption(
               label: 'Creation order',
               isSelected: settings.bucketOrder == 'creation',
               onTap: () => settings.setBucketOrder('creation'),
+              colors: colors,
+            ),
+            _buildOption(
+              label: 'Alphabetical',
+              isSelected: settings.bucketOrder == 'alphabetical',
+              onTap: () => settings.setBucketOrder('alphabetical'),
               colors: colors,
             ),
           ],

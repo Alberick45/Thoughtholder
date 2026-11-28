@@ -4,6 +4,7 @@ import '../app_theme.dart';
 import '../thought_provider.dart';
 import '../services/economy_config.dart';
 import '../settings_service.dart';
+import '../settings/create_bucket_sheet.dart';
 import 'sort_game_service.dart';
 
 class SortGameScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
   bool _loading = true;
   int _index = 0;
   bool _expanded = false;
+  String _bucketQuery = '';
   final List<String> _sortedIds = [];
 
   @override
@@ -90,8 +92,8 @@ class _SortGameScreenState extends State<SortGameScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ThoughtProvider>();
-    final colors = AppColors.of(Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light');
-    final buckets = provider.buckets.map((b)=>b['name'].toString()).where((n)=>n.toLowerCase()!='raw').toList();
+    final settings = context.watch<SettingsService>();
+    final buckets = provider.getOrderedBuckets(settings.bucketOrder).map((b)=>b['name'].toString()).where((n)=>n.toLowerCase()!='raw').where((n)=>n.toLowerCase().contains(_bucketQuery.toLowerCase())).toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Sort Game')),
       body: _loading ? const Center(child: CircularProgressIndicator())
@@ -112,7 +114,13 @@ class _SortGameScreenState extends State<SortGameScreen> {
             const SizedBox(height: 12),
             Text('Sorted this batch: ${_sortedIds.length}', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 8),
+            TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search buckets...', isDense: true, border: OutlineInputBorder()), onChanged: (v)=>setState(()=>_bucketQuery=v)),
+            const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
+              ActionChip(avatar: const Icon(Icons.add, size: 18), label: const Text('New bucket'), onPressed: () async {
+                final name = await showCreateBucketSheet(context, provider);
+                if (name != null && mounted) await _assign(name);
+              }),
               for (final b in buckets) ElevatedButton(onPressed: ()=>_assign(b), child: Text(b)),
               OutlinedButton(onPressed: _trash, child: const Text('Trash')),
               OutlinedButton(onPressed: _skip, child: const Text('Skip for now')),

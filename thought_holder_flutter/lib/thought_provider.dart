@@ -375,8 +375,10 @@ class ThoughtProvider with ChangeNotifier {
         if (countB != countA) {
           return countB.compareTo(countA); // most ideas first
         }
-        return (a['name'] as String).compareTo(b['name'] as String);
+        return (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase());
       });
+    } else if (orderPreference == 'alphabetical') {
+      list.sort((a, b) => (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
     } else {
       list.sort((a, b) {
         final int cA = (a['created_at'] as num?)?.toInt() ?? 0;
