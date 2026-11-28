@@ -16,6 +16,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
   int _index = 0;
+  bool _expanded = false;
   final List<String> _sortedIds = [];
 
   @override
@@ -26,7 +27,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
     final batch = await SortGameService.instance.pickBatch();
     await SortGameService.instance.markShown(batch.map((e)=>e['id'].toString()).toList());
     if (!mounted) return;
-    setState(() { _items = batch; _index = 0; _sortedIds.clear(); _loading = false; });
+    setState(() { _items = batch; _index = 0; _expanded = false; _sortedIds.clear(); _loading = false; });
   }
 
   Future<void> _finishIfDone() async {
@@ -53,6 +54,8 @@ class _SortGameScreenState extends State<SortGameScreen> {
     _load();
   }
 
+  void _next() { setState(() { _index++; _expanded = false; }); }
+
   Future<void> _assign(String bucket) async {
     if (_index >= _items.length) return;
     final t = _items[_index];
@@ -60,7 +63,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
     await context.read<ThoughtProvider>().fileThought(id, bucket);
     _sortedIds.add(id);
     if (!mounted) return;
-    setState(() => _index++);
+    _next();
     await _finishIfDone();
   }
 
@@ -70,7 +73,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
     final id = t['id'].toString();
     await context.read<ThoughtProvider>().moveToTrash(id);
     if (!mounted) return;
-    setState(() => _index++);
+    _next();
     await _finishIfDone();
   }
 
@@ -80,7 +83,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
     final id = t['id'].toString();
     await SortGameService.instance.clearShown([id]); // allow it to reappear later; not counted as sorted
     if (!mounted) return;
-    setState(() => _index++);
+    _next();
     await _finishIfDone();
   }
 
@@ -102,7 +105,10 @@ class _SortGameScreenState extends State<SortGameScreen> {
               return Text('Item ${_index+1}/${_items.length}  •  Today sorted: $today/$need for coins (cap ${EconomyConfig.dailySortCoinCap}/day)', style: const TextStyle(fontSize: 12));
             }),
             const SizedBox(height: 12),
-            Card(child: Padding(padding: const EdgeInsets.all(16), child: Text((_items[_index]['content'] ?? '').toString(), style: const TextStyle(fontSize: 18)))),
+            Card(child: SizedBox(height: 170, child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children:[
+              Expanded(child: SingleChildScrollView(child: Text((_items[_index]['content'] ?? '').toString(), style: const TextStyle(fontSize: 18), maxLines: _expanded ? null : 4, overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis))),
+              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: ()=>setState(()=>_expanded=!_expanded), child: Text(_expanded ? 'Show less' : 'Read more'))),
+            ])))),
             const SizedBox(height: 12),
             Text('Sorted this batch: ${_sortedIds.length}', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 8),
