@@ -835,6 +835,31 @@ class SettingsService extends ChangeNotifier {
     return sortGameSortedTodayDate == today ? sortGameSortedTodayCount : 0;
   }
 
+  int get triviaLivesRemaining => (_box.get('trivia_lives_remaining', defaultValue: 3) as num).toInt();
+  String get triviaLivesDate => (_box.get('trivia_lives_date', defaultValue: '') as String);
+  int get triviaReviveCost => (_box.get('trivia_revive_cost', defaultValue: 30) as num).toInt();
+
+  Future<void> ensureTriviaLivesForToday({int defaultLives = 3, int defaultReviveCost = 30}) async {
+    final today = _todayDateString();
+    if (triviaLivesDate != today) {
+      await _box.put('trivia_lives_date', today);
+      await _box.put('trivia_lives_remaining', defaultLives);
+      await _box.put('trivia_revive_cost', defaultReviveCost);
+      notifyListeners();
+    }
+  }
+
+  Future<void> setTriviaLivesRemaining(int value) async {
+    await _box.put('trivia_lives_date', _todayDateString());
+    await _box.put('trivia_lives_remaining', value);
+    notifyListeners();
+  }
+
+  Future<void> setTriviaReviveCost(int value) async {
+    await _box.put('trivia_revive_cost', value);
+    notifyListeners();
+  }
+
   int get dailyGoalTarget => (_box.get('daily_goal_target', defaultValue: 4) as num).toInt().clamp(1, 20);
 
   Future<void> setDailyGoalTarget(int value) async {

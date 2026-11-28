@@ -1,6 +1,8 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/economy_config.dart';
 import '../services/gamification_service.dart';
+import '../settings_service.dart';
 import 'trivia_repository.dart';
 
 class TriviaScreen extends StatefulWidget { const TriviaScreen({super.key}); @override State<TriviaScreen> createState() => _TriviaScreenState(); }
@@ -9,7 +11,16 @@ class _TriviaScreenState extends State<TriviaScreen> {
   List<TriviaQuestion> questions = []; bool loading = true; String? message; Set<int> hidden = {};
 
   @override void initState(){ super.initState(); _load(); }
-  Future<void> _load() async { setState(()=>loading=true); questions = await TriviaRepository.questionsForLevel(level); qIndex=0; hidden={}; lives=EconomyConfig.livesPerDay; reviveCost=EconomyConfig.reviveBaseCost; if(mounted) setState(()=>loading=false); }
+  Future<void> _load() async {
+    setState(()=>loading=true);
+    final settings = context.read<SettingsService>();
+    await settings.ensureTriviaLivesForToday(defaultLives: EconomyConfig.livesPerDay, defaultReviveCost: EconomyConfig.reviveBaseCost);
+    questions = await TriviaRepository.questionsForLevel(level);
+    qIndex=0; hidden={};
+    lives = settings.triviaLivesRemaining;
+    reviveCost = settings.triviaReviveCost;
+    if(mounted) setState(()=>loading=false);
+  }
   Future<void> _answer(int i) async {
     if (qIndex>=questions.length) return;
     final q = questions[qIndex];
@@ -18,6 +29,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
       message = 'Correct!';
     } else {
       lives--;
+      await context.read<SettingsService>().setTriviaLivesRemaining(lives);
       message = 'Wrong - life lost.';
     }
     qIndex++;
@@ -37,10 +49,13 @@ class _TriviaScreenState extends State<TriviaScreen> {
   }
 
   Future<void> _revive() async {
+    final settings = context.read<SettingsService>();
     final ok = await GamificationService.instance.spendCoins(reviveCost, 'trivia_revive', refId: 'revive:$level:${DateTime.now().millisecondsSinceEpoch}');
     if (!ok) { setState(()=>message='Not enough coins'); return; }
     lives = 1;
-    reviveCost = (reviveCost * EconomyConfig.reviveMultiplier).clamp(EconomyConfig.reviveBaseCost, EconomyConfig.reviveCostCap);
+    reviveCost = (reviveCost * EconomyConfig.reviveMultiplier).clamp(EconomyConfig.reviveBaseCost, EconomyConfig.reviveCostCap).toInt();
+    await settings.setTriviaLivesRemaining(lives);
+    await settings.setTriviaReviveCost(reviveCost);
     setState(()=>message='Revived!');
   }
 
