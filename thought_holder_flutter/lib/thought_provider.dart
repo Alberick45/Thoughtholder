@@ -703,6 +703,12 @@ class ThoughtProvider with ChangeNotifier {
     await loadThoughts();
   }
 
+  Future<int> emptyTrash() async {
+    final count = await DatabaseHelper.instance.deleteAllTrashedThoughts();
+    await loadThoughts();
+    return count;
+  }
+
   Future<void> updateStatus(String id, String status) async {
     await DatabaseHelper.instance.updateThoughtStatus(id, status);
     await loadThoughts();

@@ -3056,19 +3056,32 @@ class _StreamScreenState extends State<StreamScreen> {
       children: [
         // Header with count
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Trash (${trashedList.length})',
-              style: appFont(
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            Expanded(
+              child: Text(
+                'Trash (${trashedList.length})',
+                style: appFont(
+                  color: colors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            Text(
-              'Stored locally',
-              style: appFont(color: colors.mute, fontSize: 13),
+            TextButton.icon(
+              onPressed: trashedList.isEmpty ? null : () async {
+                final ok = await showDialog<bool>(context: context, builder: (ctx)=>AlertDialog(
+                  title: const Text('Empty trash?'),
+                  content: Text('Delete ${trashedList.length} item(s) forever? This cannot be undone.'),
+                  actions: [TextButton(onPressed: ()=>Navigator.pop(ctx,false), child: const Text('Cancel')), TextButton(onPressed: ()=>Navigator.pop(ctx,true), child: const Text('Delete all forever'))],
+                ));
+                if (ok == true && mounted) {
+                  final n = await provider.emptyTrash();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Deleted $n item(s) forever')));
+                }
+              },
+              icon: Icon(Icons.delete_forever, color: colors.bad, size: 18),
+              label: Text('Delete all', style: appFont(color: colors.bad, fontWeight: FontWeight.bold)),
             ),
           ],
         ),

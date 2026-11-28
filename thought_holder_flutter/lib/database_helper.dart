@@ -1013,6 +1013,24 @@ WHERE id = ?
     });
   }
 
+  Future<int> deleteAllTrashedThoughts({String? deviceId}) async {
+    final db = await instance.database;
+    final rows = await db.query('thoughts', columns: ['id'], where: 'trashed = 1');
+    final node = deviceId ?? currentDeviceId;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final hlcStr = Hlc.now(node).toString();
+    await db.transaction((txn) async {
+      for (final row in rows) {
+        final id = row['id'].toString();
+        await txn.insert('deleted_records', {
+          'id': id, 'type': 'thought', 'deleted_at': now, 'updated_at': hlcStr, 'updated_by': node,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await txn.delete('thoughts', where: 'trashed = 1');
+    });
+    return rows.length;
+  }
+
   // --- Bucket Operations ---
 
   Future<List<Map<String, dynamic>>> fetchBuckets() async {
