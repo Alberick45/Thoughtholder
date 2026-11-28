@@ -819,7 +819,7 @@ class SettingsService extends ChangeNotifier {
   }
 
   int get sortGameSortedTodayCount => (_box.get('sort_game_sorted_today_count', defaultValue: 0) as num).toInt();
-  String get sortGameSortedTodayDate => (_box.get('sort_game_sorted_today_date', defaultValue: '') as String;
+  String get sortGameSortedTodayDate => (_box.get('sort_game_sorted_today_date', defaultValue: '') as String);
 
   Future<void> recordSortGameSorted(int count) async {
     final today = _todayDateString();
