@@ -94,7 +94,7 @@ class _SortGameScreenState extends State<SortGameScreen> {
       body: _loading ? const Center(child: CircularProgressIndicator())
         : _items.isEmpty ? Center(child: Column(mainAxisSize: MainAxisSize.min, children:[const Text('No unsorted items ready right now.'), const SizedBox(height:8), ElevatedButton(onPressed: _load, child: const Text('Refresh'))]))
         : _index >= _items.length ? const Center(child: Text('Batch done'))
-        : Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children:[
+        : SafeArea(child: ListView(padding: const EdgeInsets.all(16), children:[
             Builder(builder: (ctx){
               final s = ctx.watch<SettingsService>();
               final today = s.sortGameSortedToday();
