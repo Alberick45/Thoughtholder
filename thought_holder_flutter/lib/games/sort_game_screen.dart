@@ -118,7 +118,8 @@ class _SortGameScreenState extends State<SortGameScreen> {
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
               ActionChip(avatar: const Icon(Icons.add, size: 18), label: const Text('New bucket'), onPressed: () async {
-                final name = await showCreateBucketSheet(context, provider);
+                final colors = AppColors.of(Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light');
+                final name = await showCreateBucketSheet(context, provider, colors);
                 if (name != null && mounted) await _assign(name);
               }),
               for (final b in buckets) ElevatedButton(onPressed: ()=>_assign(b), child: Text(b)),
