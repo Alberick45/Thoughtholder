@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../app_theme.dart';
 import '../services/gamification_service.dart';
@@ -349,9 +350,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
         _showEditDialog(context, thought);
         break;
       case 'copy':
-        await provider.copyThought(id);
+        await Clipboard.setData(ClipboardData(text: thought['content']?.toString() ?? ''));
         if (mounted) {
-          AppToast.show(context, message: 'Duplicated "$title"');
+          AppToast.show(context, message: 'Copied "$title"');
         }
         break;
       case 'move_bucket':
@@ -3123,10 +3124,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
                                 color: Colors.white,
                                 onTap: () async {
                                   Navigator.pop(ctx);
-                                  await provider.copyThought(id);
+                                  await Clipboard.setData(ClipboardData(text: thought['content']?.toString() ?? ''));
                                   if (mounted) {
-                                    AppToast.show(context,
-                                        message: 'Duplicated "$title"');
+                                    AppToast.show(context, message: 'Copied "$title"');
                                   }
                                 },
                               ),
@@ -3315,9 +3315,9 @@ class _StickyNoteBoardState extends State<StickyNoteBoard> {
             tooltip: 'Copy',
             onTap: () async {
               setState(() => _selectedThoughtId = null);
-              await provider.copyThought(id);
+              await Clipboard.setData(ClipboardData(text: thought['content']?.toString() ?? ''));
               if (mounted) {
-                AppToast.show(context, message: 'Duplicated "$title"');
+                AppToast.show(context, message: 'Copied "$title"');
               }
             },
           ),
